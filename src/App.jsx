@@ -11,7 +11,7 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 )
 
-// Custom marker icons by agency - Simple circle markers that always work
+// Custom marker icons by agency
 const createCustomIcon = (color) => {
   return L.divIcon({
     className: 'custom-marker',
@@ -32,17 +32,15 @@ const createCustomIcon = (color) => {
 }
 
 const markerIcons = {
-  STATE: createCustomIcon('#4a7c2f'),    // Green
-  NPS: createCustomIcon('#2563eb'),      // Blue
-  USFS: createCustomIcon('#92400e'),     // Brown
-  BLM: createCustomIcon('#ea580c'),      // Orange
-  FWS: createCustomIcon('#9333ea'),      // Purple - THIS ONE!
-  FEDERAL: createCustomIcon('#6b7280')   // Gray
+  STATE: createCustomIcon('#4a7c2f'),
+  NPS: createCustomIcon('#2563eb'),
+  USFS: createCustomIcon('#92400e'),
+  BLM: createCustomIcon('#ea580c'),
+  FWS: createCustomIcon('#9333ea'),
+  FEDERAL: createCustomIcon('#6b7280')
 }
 
-console.log('Marker icons created:', Object.keys(markerIcons))
-
-// Component to handle map centering when a park is selected
+// Component to handle map centering
 function MapController({ center, zoom }) {
   const map = useMap()
   useEffect(() => {
@@ -56,15 +54,32 @@ function MapController({ center, zoom }) {
 function App() {
   const [parks, setParks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('ALL')
   const [selectedPark, setSelectedPark] = useState(null)
   const [mapCenter, setMapCenter] = useState([35.5, -83.0])
   const [mapZoom, setMapZoom] = useState(7)
+  
+  // Near Me feature state
+  const [userLocation, setUserLocation] = useState(null)
+  const [loadingLocation, setLoadingLocation] = useState(false)
+  const [sortByDistance, setSortByDistance] = useState(false)
+
+  // Filter drawer state
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
+  const [landTypeFilter, setLandTypeFilter] = useState('ALL')
+  const [agencyFilters, setAgencyFilters] = useState({
+    NPS: false,
+    USFS: false,
+    FWS: false,
+    BLM: false
+  })
+  const [activitiesExpanded, setActivitiesExpanded] = useState(false)
+  const [landTypeExpanded, setLandTypeExpanded] = useState(true)
+  const [agenciesExpanded, setAgenciesExpanded] = useState(false)
 
   // Fetch parks from Supabase
   useEffect(() => {
     fetchParks()
-  }, [filter])
+  }, [landTypeFilter, agencyFilters])
 
   const fetchParks = async () => {
     setLoading(true)
@@ -75,13 +90,17 @@ function App() {
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
 
-      // Apply filter
-      if (filter === 'FEDERAL') {
+      if (landTypeFilter === 'FEDERAL') {
         query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
-      } else if (filter === 'STATE') {
+      } else if (landTypeFilter === 'STATE') {
         query = query.eq('agency', 'STATE')
-      } else if (filter !== 'ALL') {
-        query = query.eq('agency', filter)
+      }
+
+      if (landTypeFilter !== 'STATE') {
+        const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
+        if (selectedAgencies.length > 0) {
+          query = query.in('agency', selectedAgencies)
+        }
       }
 
       const { data, error } = await query
@@ -89,8 +108,6 @@ function App() {
       if (error) throw error
 
       console.log(`Loaded ${data.length} parks`)
-      console.log('Agencies in data:', [...new Set(data.map(p => p.agency))].sort())
-      console.log('FWS parks:', data.filter(p => p.agency === 'FWS').length)
       setParks(data)
     } catch (error) {
       console.error('Error fetching parks:', error)
@@ -123,6 +140,104 @@ function App() {
     return names[agency] || agency
   }
 
+  // Calculate distance between two coordinates
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 3959
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c
+  }
+
+  // Handle "Near Me" button
+  const handleNearMe = () => {
+    if (loadingLocation) return
+
+    setLoadingLocation(true)
+    
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLat = position.coords.latitude
+          const userLon = position.coords.longitude
+          
+          setUserLocation({ lat: userLat, lon: userLon })
+          setSortByDistance(true)
+          setMapCenter([userLat, userLon])
+          setMapZoom(10)
+          setLoadingLocation(false)
+        },
+        (error) => {
+          console.error('Error getting location:', error)
+          alert('Unable to get your location. Please enable location services.')
+          setLoadingLocation(false)
+        }
+      )
+    } else {
+      alert('Geolocation is not supported by your browser.')
+      setLoadingLocation(false)
+    }
+  }
+
+  // Handle land type filter change
+  const handleLandTypeChange = (type) => {
+    setLandTypeFilter(type)
+    if (type === 'STATE') {
+      setAgencyFilters({ NPS: false, USFS: false, FWS: false, BLM: false })
+    }
+  }
+
+  // Handle specific agency filter toggle
+  const handleAgencyToggle = (agency) => {
+    setAgencyFilters(prev => ({
+      ...prev,
+      [agency]: !prev[agency]
+    }))
+    if (landTypeFilter === 'STATE') {
+      setLandTypeFilter('ALL')
+    }
+  }
+
+  // Count active filters
+  const getActiveFilterCount = () => {
+    let count = 0
+    if (landTypeFilter !== 'ALL') count++
+    count += Object.values(agencyFilters).filter(Boolean).length
+    return count
+  }
+
+  // Get today's day of week for operating hours
+  const getTodaySchedule = (operatingHours) => {
+    if (!operatingHours || operatingHours.length === 0) return null
+    
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    const today = days[new Date().getDay()]
+    
+    const schedule = operatingHours[0]
+    return schedule[today] || 'Hours not available'
+  }
+
+  // Calculate distances and sort
+  const parksWithDistances = userLocation 
+    ? parks.map(park => ({
+        ...park,
+        distance: calculateDistance(
+          userLocation.lat, 
+          userLocation.lon, 
+          park.latitude, 
+          park.longitude
+        )
+      }))
+    : parks
+
+  const displayParks = sortByDistance 
+    ? [...parksWithDistances].sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity))
+    : parksWithDistances
+
   return (
     <div className="app">
       {/* Header */}
@@ -133,38 +248,244 @@ function App() {
         </div>
       </header>
 
-      {/* Filters */}
-      <div className="filters">
-        <button 
-          className={filter === 'ALL' ? 'active' : ''} 
-          onClick={() => setFilter('ALL')}
+      {/* Filter Drawer Button */}
+      <button 
+        className="filter-drawer-button"
+        onClick={() => setFilterDrawerOpen(true)}
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="4" y1="6" x2="20" y2="6"/>
+          <line x1="4" y1="12" x2="20" y2="12"/>
+          <line x1="4" y1="18" x2="20" y2="18"/>
+          <circle cx="18" cy="6" r="2" fill="white"/>
+          <circle cx="8" cy="12" r="2" fill="white"/>
+          <circle cx="15" cy="18" r="2" fill="white"/>
+        </svg>
+        <span>Filters</span>
+        {getActiveFilterCount() > 0 && (
+          <span className="filter-badge">{getActiveFilterCount()}</span>
+        )}
+      </button>
+
+      {/* Near Me Button */}
+      <button 
+        className="near-me-button"
+        onClick={handleNearMe}
+        disabled={loadingLocation}
+        title="Find parks near me"
+      >
+        <svg 
+          width="24" 
+          height="24" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
         >
-          All Parks ({parks.length})
-        </button>
-        <button 
-          className={filter === 'FEDERAL' ? 'active' : ''} 
-          onClick={() => setFilter('FEDERAL')}
-        >
-          Federal Lands
-        </button>
-        <button 
-          className={filter === 'STATE' ? 'active' : ''} 
-          onClick={() => setFilter('STATE')}
-        >
-          State Parks
-        </button>
-        <button 
-          className={filter === 'NPS' ? 'active' : ''} 
-          onClick={() => setFilter('NPS')}
-        >
-          National Parks
-        </button>
-        <button 
-          className={filter === 'USFS' ? 'active' : ''} 
-          onClick={() => setFilter('USFS')}
-        >
-          National Forests
-        </button>
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="2" x2="12" y2="6"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/>
+          <line x1="18" y1="12" x2="22" y2="12"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+
+      {/* Filter Drawer Backdrop */}
+      {filterDrawerOpen && (
+        <div 
+          className="filter-drawer-backdrop"
+          onClick={() => setFilterDrawerOpen(false)}
+        />
+      )}
+
+      {/* Filter Drawer */}
+      <div className={`filter-drawer ${filterDrawerOpen ? 'open' : ''}`}>
+        <div className="filter-drawer-header">
+          <h2>Filters</h2>
+          <button 
+            className="filter-drawer-close"
+            onClick={() => setFilterDrawerOpen(false)}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="filter-drawer-content">
+          
+          {/* Activities Section (Coming Soon) */}
+          <div className="filter-section disabled">
+            <button 
+              className="filter-section-header"
+              onClick={() => setActivitiesExpanded(!activitiesExpanded)}
+              disabled
+            >
+              <span className="filter-section-title">
+                🔒 Activities (Coming Soon)
+              </span>
+              <span className="filter-section-arrow">
+                {activitiesExpanded ? '▼' : '▶'}
+              </span>
+            </button>
+            {activitiesExpanded && (
+              <div className="filter-section-content">
+                <label className="filter-option disabled">
+                  <input type="checkbox" disabled />
+                  <span>Hiking</span>
+                </label>
+                <label className="filter-option disabled">
+                  <input type="checkbox" disabled />
+                  <span>Camping</span>
+                </label>
+                <label className="filter-option disabled">
+                  <input type="checkbox" disabled />
+                  <span>Fishing</span>
+                </label>
+                <label className="filter-option disabled">
+                  <input type="checkbox" disabled />
+                  <span>Swimming</span>
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Land Type Section */}
+          <div className="filter-section">
+            <button 
+              className="filter-section-header"
+              onClick={() => setLandTypeExpanded(!landTypeExpanded)}
+            >
+              <span className="filter-section-title">
+                Land Type
+                {landTypeFilter !== 'ALL' && (
+                  <span className="filter-count"> (1)</span>
+                )}
+              </span>
+              <span className="filter-section-arrow">
+                {landTypeExpanded ? '▼' : '▶'}
+              </span>
+            </button>
+            {landTypeExpanded && (
+              <div className="filter-section-content">
+                <label className="filter-option">
+                  <input 
+                    type="radio" 
+                    name="landType"
+                    checked={landTypeFilter === 'ALL'}
+                    onChange={() => handleLandTypeChange('ALL')}
+                  />
+                  <span>Show All</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="radio" 
+                    name="landType"
+                    checked={landTypeFilter === 'FEDERAL'}
+                    onChange={() => handleLandTypeChange('FEDERAL')}
+                  />
+                  <span>Federal Lands Only</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="radio" 
+                    name="landType"
+                    checked={landTypeFilter === 'STATE'}
+                    onChange={() => handleLandTypeChange('STATE')}
+                  />
+                  <span>State Parks Only</span>
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Specific Agencies Section */}
+          <div className="filter-section">
+            <button 
+              className="filter-section-header"
+              onClick={() => setAgenciesExpanded(!agenciesExpanded)}
+            >
+              <span className="filter-section-title">
+                Specific Agencies
+                {Object.values(agencyFilters).filter(Boolean).length > 0 && (
+                  <span className="filter-count">
+                    {' '}({Object.values(agencyFilters).filter(Boolean).length})
+                  </span>
+                )}
+              </span>
+              <span className="filter-section-arrow">
+                {agenciesExpanded ? '▼' : '▶'}
+              </span>
+            </button>
+            {agenciesExpanded && (
+              <div className="filter-section-content">
+                <label className="filter-option">
+                  <input 
+                    type="checkbox"
+                    checked={agencyFilters.NPS}
+                    onChange={() => handleAgencyToggle('NPS')}
+                    disabled={landTypeFilter === 'STATE'}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#2563eb'}}></span>
+                    National Parks (NPS)
+                  </span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox"
+                    checked={agencyFilters.USFS}
+                    onChange={() => handleAgencyToggle('USFS')}
+                    disabled={landTypeFilter === 'STATE'}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#92400e'}}></span>
+                    National Forests (USFS)
+                  </span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox"
+                    checked={agencyFilters.FWS}
+                    onChange={() => handleAgencyToggle('FWS')}
+                    disabled={landTypeFilter === 'STATE'}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#9333ea'}}></span>
+                    Fish & Wildlife (FWS)
+                  </span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox"
+                    checked={agencyFilters.BLM}
+                    onChange={() => handleAgencyToggle('BLM')}
+                    disabled={landTypeFilter === 'STATE'}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#ea580c'}}></span>
+                    Bureau of Land Management (BLM)
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* Clear Filters Button */}
+        {getActiveFilterCount() > 0 && (
+          <div className="filter-drawer-footer">
+            <button 
+              className="clear-all-filters"
+              onClick={() => {
+                setLandTypeFilter('ALL')
+                setAgencyFilters({ NPS: false, USFS: false, FWS: false, BLM: false })
+              }}
+            >
+              Clear All Filters
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
@@ -185,7 +506,7 @@ function App() {
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               
-              {parks.map((park) => {
+              {displayParks.map((park) => {
                 const icon = markerIcons[park.agency] || markerIcons.FEDERAL
                 return (
                   <Marker
@@ -199,6 +520,9 @@ function App() {
                     <Popup>
                       <div className="popup-content">
                         <h3>{park.name}</h3>
+                        {park.distance && (
+                          <p><strong>Distance:</strong> {park.distance.toFixed(1)} miles</p>
+                        )}
                         <p><strong>State:</strong> {park.state}</p>
                         <p><strong>Agency:</strong> {getAgencyFullName(park.agency)}</p>
                         <button 
@@ -216,7 +540,7 @@ function App() {
           )}
         </div>
 
-        {/* Detail Panel */}
+        {/* Enhanced Detail Panel */}
         {selectedPark && (
           <div className="detail-panel">
             <button className="close-button" onClick={closeDetailPanel}>
@@ -224,19 +548,99 @@ function App() {
             </button>
             
             <div className="detail-content">
+              
+              {/* Alerts Banner (if any) */}
+              {selectedPark.alerts && selectedPark.alerts.length > 0 && (
+                <div className="alerts-banner">
+                  <div className="alert-icon">⚠️</div>
+                  <div className="alert-content">
+                    <h3>Important Alerts</h3>
+                    {selectedPark.alerts.map((alert, index) => (
+                      <div key={index} className="alert-item">
+                        <strong>{alert.title}</strong>
+                        <p>{alert.description}</p>
+                        {alert.url && (
+                          <a href={alert.url} target="_blank" rel="noopener noreferrer">
+                            More Info →
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Park Title */}
               <h2>{selectedPark.name}</h2>
               
+              {/* Quick Info Badges */}
+              <div className="info-badges">
+                {selectedPark.entrance_fees && selectedPark.entrance_fees.length > 0 && (
+                  <span className="badge fee-badge">
+                    {selectedPark.entrance_fees[0].cost === '0' || selectedPark.entrance_fees[0].cost === '0.00' 
+                      ? '🎫 Free Entry' 
+                      : `💰 $${selectedPark.entrance_fees[0].cost}`}
+                  </span>
+                )}
+                {selectedPark.distance && (
+                  <span className="badge distance-badge">
+                    📍 {selectedPark.distance.toFixed(1)} miles away
+                  </span>
+                )}
+              </div>
+
+              {/* Description */}
+              {selectedPark.description && (
+                <div className="detail-section description-section">
+                  <h3>About This Park</h3>
+                  <p>{selectedPark.description}</p>
+                </div>
+              )}
+
+              {/* Operating Hours & Contact */}
+              <div className="detail-grid">
+                {selectedPark.operating_hours && (
+                  <div className="detail-section">
+                    <h3>🕐 Hours Today</h3>
+                    <p className="hours-today">{getTodaySchedule(selectedPark.operating_hours)}</p>
+                  </div>
+                )}
+
+                {(selectedPark.phone || selectedPark.email) && (
+                  <div className="detail-section">
+                    <h3>📞 Contact</h3>
+                    {selectedPark.phone && (
+                      <p><a href={`tel:${selectedPark.phone}`}>{selectedPark.phone}</a></p>
+                    )}
+                    {selectedPark.email && (
+                      <p><a href={`mailto:${selectedPark.email}`}>{selectedPark.email}</a></p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Activities */}
+              {selectedPark.activities && selectedPark.activities.length > 0 && (
+                <div className="detail-section">
+                  <h3>🥾 Activities</h3>
+                  <div className="activities-tags">
+                    {selectedPark.activities.map((activity, index) => (
+                      <span key={index} className="activity-tag">{activity}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Location */}
               <div className="detail-section">
                 <h3>Location</h3>
                 <p><strong>State:</strong> {selectedPark.state}</p>
                 {selectedPark.county && (
                   <p><strong>County:</strong> {selectedPark.county}</p>
                 )}
-                {selectedPark.address && (
-                  <p><strong>Address:</strong> {selectedPark.address}</p>
-                )}
               </div>
 
+              {/* Management */}
               <div className="detail-section">
                 <h3>Management</h3>
                 <p><strong>Agency:</strong> {getAgencyFullName(selectedPark.agency)}</p>
@@ -245,58 +649,66 @@ function App() {
                 )}
               </div>
 
-              {selectedPark.acres && (
+              {/* Size & Designation */}
+              <div className="detail-grid">
+                {selectedPark.acres && (
+                  <div className="detail-section">
+                    <h3>Size</h3>
+                    <p>{Math.round(selectedPark.acres).toLocaleString()} acres</p>
+                  </div>
+                )}
+
+                {selectedPark.designation_type && (
+                  <div className="detail-section">
+                    <h3>Designation</h3>
+                    <p>{selectedPark.designation_type}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Weather Info */}
+              {selectedPark.weather_info && (
                 <div className="detail-section">
-                  <h3>Size</h3>
-                  <p>{Math.round(selectedPark.acres).toLocaleString()} acres</p>
+                  <h3>🌤️ Weather Info</h3>
+                  <p>{selectedPark.weather_info}</p>
                 </div>
               )}
 
-              {selectedPark.designation_type && (
+              {/* Directions Info */}
+              {selectedPark.directions_info && (
                 <div className="detail-section">
-                  <h3>Designation</h3>
-                  <p>{selectedPark.designation_type}</p>
+                  <h3>🚗 Getting There</h3>
+                  <p>{selectedPark.directions_info}</p>
                 </div>
               )}
 
-              {selectedPark.category && (
-                <div className="detail-section">
-                  <h3>Category</h3>
-                  <p>{selectedPark.category}</p>
-                </div>
-              )}
-
-              {selectedPark.public_access && (
-                <div className="detail-section">
-                  <h3>Public Access</h3>
-                  <p>{selectedPark.public_access === 'OA' ? 'Open Access' : selectedPark.public_access}</p>
-                </div>
-              )}
-
-              {selectedPark.website && (
-                <div className="detail-section">
+              {/* Links */}
+              <div className="detail-section action-links">
+                {selectedPark.website && (
                   <a 
                     href={selectedPark.website} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="website-link"
+                    className="action-button primary"
                   >
                     Visit Official Website →
                   </a>
-                </div>
-              )}
-
-              <div className="detail-section coordinates">
-                <h3>Coordinates</h3>
-                <p>{selectedPark.latitude.toFixed(4)}, {selectedPark.longitude.toFixed(4)}</p>
+                )}
                 <a 
                   href={`https://www.google.com/maps/search/?api=1&query=${selectedPark.latitude},${selectedPark.longitude}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="directions-link"
+                  className="action-button secondary"
                 >
                   Get Directions
                 </a>
+              </div>
+
+              {/* Coordinates (small, at bottom) */}
+              <div className="detail-section coordinates-section">
+                <p className="coordinates-text">
+                  {selectedPark.latitude.toFixed(4)}, {selectedPark.longitude.toFixed(4)}
+                </p>
               </div>
             </div>
           </div>
@@ -306,11 +718,9 @@ function App() {
       {/* Stats Footer */}
       <div className="stats">
         <div className="stats-left">
-          <span>Showing {parks.length} parks</span>
-          {filter !== 'ALL' && (
-            <button className="clear-filter" onClick={() => setFilter('ALL')}>
-              Clear Filter
-            </button>
+          <span>Showing {displayParks.length} parks</span>
+          {sortByDistance && (
+            <span> (sorted by distance)</span>
           )}
         </div>
         <div className="legend">
