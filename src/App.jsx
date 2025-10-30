@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import L from 'leaflet'
+import AdminPanel from './AdminPanel'
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -58,6 +59,9 @@ function App() {
   const [mapCenter, setMapCenter] = useState([35.5, -83.0])
   const [mapZoom, setMapZoom] = useState(7)
   
+  // Admin panel state
+  const [showAdmin, setShowAdmin] = useState(false)
+  
   // Near Me feature state
   const [userLocation, setUserLocation] = useState(null)
   const [loadingLocation, setLoadingLocation] = useState(false)
@@ -76,10 +80,32 @@ function App() {
   const [landTypeExpanded, setLandTypeExpanded] = useState(true)
   const [agenciesExpanded, setAgenciesExpanded] = useState(false)
 
+  // Check URL for /admin route
+  useEffect(() => {
+    const checkAdminRoute = () => {
+      if (window.location.pathname === '/admin') {
+        setShowAdmin(true)
+      } else {
+        setShowAdmin(false)
+      }
+    }
+    
+    checkAdminRoute()
+    
+    // Listen for URL changes (if using back/forward buttons)
+    window.addEventListener('popstate', checkAdminRoute)
+    
+    return () => {
+      window.removeEventListener('popstate', checkAdminRoute)
+    }
+  }, [])
+
   // Fetch parks from Supabase
   useEffect(() => {
-    fetchParks()
-  }, [landTypeFilter, agencyFilters])
+    if (!showAdmin) {
+      fetchParks()
+    }
+  }, [landTypeFilter, agencyFilters, showAdmin])
 
   const fetchParks = async () => {
     setLoading(true)
@@ -238,6 +264,16 @@ function App() {
     ? [...parksWithDistances].sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity))
     : parksWithDistances
 
+  // If admin route, show admin panel
+  if (showAdmin) {
+    return (
+      <div className="app">
+        <AdminPanel />
+      </div>
+    )
+  }
+
+  // Otherwise show the main map app
   return (
     <div className="app">
       {/* Header */}
