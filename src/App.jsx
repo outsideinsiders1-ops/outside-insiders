@@ -12,7 +12,7 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 )
 
-// Custom marker icons by agency
+// Enhanced marker icons - now includes COUNTY and CITY
 const createCustomIcon = (color) => {
   return L.divIcon({
     className: 'custom-marker',
@@ -33,12 +33,14 @@ const createCustomIcon = (color) => {
 }
 
 const markerIcons = {
-  STATE: createCustomIcon('#4a7c2f'),
-  NPS: createCustomIcon('#2563eb'),
-  USFS: createCustomIcon('#92400e'),
-  BLM: createCustomIcon('#ea580c'),
-  FWS: createCustomIcon('#9333ea'),
-  FEDERAL: createCustomIcon('#6b7280')
+  STATE: createCustomIcon('#4a7c2f'),     // Green
+  COUNTY: createCustomIcon('#0891b2'),    // Cyan/Teal
+  CITY: createCustomIcon('#eab308'),      // Yellow
+  NPS: createCustomIcon('#2563eb'),       // Blue
+  USFS: createCustomIcon('#92400e'),      // Brown
+  BLM: createCustomIcon('#ea580c'),       // Orange
+  FWS: createCustomIcon('#9333ea'),       // Purple
+  FEDERAL: createCustomIcon('#6b7280')    // Gray
 }
 
 // Component to handle map centering
@@ -67,7 +69,7 @@ function App() {
   const [loadingLocation, setLoadingLocation] = useState(false)
   const [sortByDistance, setSortByDistance] = useState(false)
 
-  // Filter drawer state
+  // Enhanced filter drawer state
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [landTypeFilter, setLandTypeFilter] = useState('ALL')
   const [agencyFilters, setAgencyFilters] = useState({
@@ -76,6 +78,20 @@ function App() {
     FWS: false,
     BLM: false
   })
+  
+  // NEW: Amenities filters
+  const [amenitiesFilters, setAmenitiesFilters] = useState({
+    camping: false,
+    hiking: false,
+    fishing: false,
+    swimming: false,
+    boating: false,
+    picnicking: false,
+    playground: false,
+    'visitor center': false,
+    'restrooms': false
+  })
+  
   const [activitiesExpanded, setActivitiesExpanded] = useState(false)
   const [landTypeExpanded, setLandTypeExpanded] = useState(true)
   const [agenciesExpanded, setAgenciesExpanded] = useState(false)
@@ -91,8 +107,6 @@ function App() {
     }
     
     checkAdminRoute()
-    
-    // Listen for URL changes (if using back/forward buttons)
     window.addEventListener('popstate', checkAdminRoute)
     
     return () => {
@@ -100,12 +114,12 @@ function App() {
     }
   }, [])
 
-  // Fetch parks from Supabase
+  // Fetch parks from Supabase with enhanced filtering
   useEffect(() => {
     if (!showAdmin) {
       fetchParks()
     }
-  }, [landTypeFilter, agencyFilters, showAdmin])
+  }, [landTypeFilter, agencyFilters, amenitiesFilters, showAdmin])
 
   const fetchParks = async () => {
     setLoading(true)
@@ -116,13 +130,19 @@ function App() {
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
 
+      // Land type filtering - enhanced for county/city
       if (landTypeFilter === 'FEDERAL') {
         query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
       } else if (landTypeFilter === 'STATE') {
         query = query.eq('agency', 'STATE')
+      } else if (landTypeFilter === 'COUNTY') {
+        query = query.eq('agency', 'COUNTY')
+      } else if (landTypeFilter === 'CITY') {
+        query = query.eq('agency', 'CITY')
       }
 
-      if (landTypeFilter !== 'STATE') {
+      // Specific agency filters
+      if (landTypeFilter !== 'STATE' && landTypeFilter !== 'COUNTY' && landTypeFilter !== 'CITY') {
         const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
         if (selectedAgencies.length > 0) {
           query = query.in('agency', selectedAgencies)
@@ -134,7 +154,25 @@ function App() {
       if (error) throw error
 
       console.log(`Loaded ${data.length} parks`)
-      setParks(data)
+      
+      // Client-side amenities filtering
+      let filteredParks = data
+      const activeAmenities = Object.keys(amenitiesFilters).filter(key => amenitiesFilters[key])
+      
+      if (activeAmenities.length > 0) {
+        filteredParks = data.filter(park => {
+          if (!park.amenities || park.amenities.length === 0) return false
+          
+          // Check if park has ALL selected amenities
+          return activeAmenities.every(amenity => 
+            park.amenities.some(parkAmenity => 
+              parkAmenity.toLowerCase().includes(amenity.toLowerCase())
+            )
+          )
+        })
+      }
+      
+      setParks(filteredParks)
     } catch (error) {
       console.error('Error fetching parks:', error)
       alert('Error loading parks. Check console for details.')
@@ -157,6 +195,8 @@ function App() {
   const getAgencyFullName = (agency) => {
     const names = {
       STATE: 'State Park',
+      COUNTY: 'County Park',
+      CITY: 'City Park',
       NPS: 'National Park Service',
       USFS: 'U.S. Forest Service',
       BLM: 'Bureau of Land Management',
@@ -212,7 +252,7 @@ function App() {
   // Handle land type filter change
   const handleLandTypeChange = (type) => {
     setLandTypeFilter(type)
-    if (type === 'STATE') {
+    if (type === 'STATE' || type === 'COUNTY' || type === 'CITY') {
       setAgencyFilters({ NPS: false, USFS: false, FWS: false, BLM: false })
     }
   }
@@ -223,9 +263,17 @@ function App() {
       ...prev,
       [agency]: !prev[agency]
     }))
-    if (landTypeFilter === 'STATE') {
+    if (landTypeFilter === 'STATE' || landTypeFilter === 'COUNTY' || landTypeFilter === 'CITY') {
       setLandTypeFilter('ALL')
     }
+  }
+
+  // NEW: Handle amenities filter toggle
+  const handleAmenityToggle = (amenity) => {
+    setAmenitiesFilters(prev => ({
+      ...prev,
+      [amenity]: !prev[amenity]
+    }))
   }
 
   // Count active filters
@@ -233,6 +281,7 @@ function App() {
     let count = 0
     if (landTypeFilter !== 'ALL') count++
     count += Object.values(agencyFilters).filter(Boolean).length
+    count += Object.values(amenitiesFilters).filter(Boolean).length
     return count
   }
 
@@ -335,7 +384,7 @@ function App() {
         />
       )}
 
-      {/* Filter Drawer */}
+      {/* Enhanced Filter Drawer */}
       <div className={`filter-drawer ${filterDrawerOpen ? 'open' : ''}`}>
         <div className="filter-drawer-header">
           <h2>Filters</h2>
@@ -349,15 +398,19 @@ function App() {
 
         <div className="filter-drawer-content">
           
-          {/* Activities Section (Coming Soon) */}
-          <div className="filter-section disabled">
+          {/* ENHANCED: Activities/Amenities Section - NOW ENABLED! */}
+          <div className="filter-section">
             <button 
               className="filter-section-header"
               onClick={() => setActivitiesExpanded(!activitiesExpanded)}
-              disabled
             >
               <span className="filter-section-title">
-                🔒 Activities (Coming Soon)
+                🎯 Amenities
+                {Object.values(amenitiesFilters).filter(Boolean).length > 0 && (
+                  <span className="filter-count">
+                    {' '}({Object.values(amenitiesFilters).filter(Boolean).length})
+                  </span>
+                )}
               </span>
               <span className="filter-section-arrow">
                 {activitiesExpanded ? '▼' : '▶'}
@@ -365,27 +418,83 @@ function App() {
             </button>
             {activitiesExpanded && (
               <div className="filter-section-content">
-                <label className="filter-option disabled">
-                  <input type="checkbox" disabled />
-                  <span>Hiking</span>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.camping}
+                    onChange={() => handleAmenityToggle('camping')}
+                  />
+                  <span>🏕️ Camping</span>
                 </label>
-                <label className="filter-option disabled">
-                  <input type="checkbox" disabled />
-                  <span>Camping</span>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.hiking}
+                    onChange={() => handleAmenityToggle('hiking')}
+                  />
+                  <span>🥾 Hiking</span>
                 </label>
-                <label className="filter-option disabled">
-                  <input type="checkbox" disabled />
-                  <span>Fishing</span>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.fishing}
+                    onChange={() => handleAmenityToggle('fishing')}
+                  />
+                  <span>🎣 Fishing</span>
                 </label>
-                <label className="filter-option disabled">
-                  <input type="checkbox" disabled />
-                  <span>Swimming</span>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.swimming}
+                    onChange={() => handleAmenityToggle('swimming')}
+                  />
+                  <span>🏊 Swimming</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.boating}
+                    onChange={() => handleAmenityToggle('boating')}
+                  />
+                  <span>⛵ Boating</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.picnicking}
+                    onChange={() => handleAmenityToggle('picnicking')}
+                  />
+                  <span>🧺 Picnic Areas</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.playground}
+                    onChange={() => handleAmenityToggle('playground')}
+                  />
+                  <span>🛝 Playground</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters['visitor center']}
+                    onChange={() => handleAmenityToggle('visitor center')}
+                  />
+                  <span>🏛️ Visitor Center</span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="checkbox" 
+                    checked={amenitiesFilters.restrooms}
+                    onChange={() => handleAmenityToggle('restrooms')}
+                  />
+                  <span>🚻 Restrooms</span>
                 </label>
               </div>
             )}
           </div>
 
-          {/* Land Type Section */}
+          {/* ENHANCED: Land Type Section - Added County & City */}
           <div className="filter-section">
             <button 
               className="filter-section-header"
@@ -428,7 +537,34 @@ function App() {
                     checked={landTypeFilter === 'STATE'}
                     onChange={() => handleLandTypeChange('STATE')}
                   />
-                  <span>State Parks Only</span>
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#4a7c2f'}}></span>
+                    State Parks Only
+                  </span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="radio" 
+                    name="landType"
+                    checked={landTypeFilter === 'COUNTY'}
+                    onChange={() => handleLandTypeChange('COUNTY')}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#0891b2'}}></span>
+                    County Parks Only
+                  </span>
+                </label>
+                <label className="filter-option">
+                  <input 
+                    type="radio" 
+                    name="landType"
+                    checked={landTypeFilter === 'CITY'}
+                    onChange={() => handleLandTypeChange('CITY')}
+                  />
+                  <span>
+                    <span className="legend-dot" style={{backgroundColor: '#eab308'}}></span>
+                    City Parks Only
+                  </span>
                 </label>
               </div>
             )}
@@ -441,7 +577,7 @@ function App() {
               onClick={() => setAgenciesExpanded(!agenciesExpanded)}
             >
               <span className="filter-section-title">
-                Specific Agencies
+                Federal Agencies
                 {Object.values(agencyFilters).filter(Boolean).length > 0 && (
                   <span className="filter-count">
                     {' '}({Object.values(agencyFilters).filter(Boolean).length})
@@ -459,7 +595,7 @@ function App() {
                     type="checkbox"
                     checked={agencyFilters.NPS}
                     onChange={() => handleAgencyToggle('NPS')}
-                    disabled={landTypeFilter === 'STATE'}
+                    disabled={landTypeFilter === 'STATE' || landTypeFilter === 'COUNTY' || landTypeFilter === 'CITY'}
                   />
                   <span>
                     <span className="legend-dot" style={{backgroundColor: '#2563eb'}}></span>
@@ -471,7 +607,7 @@ function App() {
                     type="checkbox"
                     checked={agencyFilters.USFS}
                     onChange={() => handleAgencyToggle('USFS')}
-                    disabled={landTypeFilter === 'STATE'}
+                    disabled={landTypeFilter === 'STATE' || landTypeFilter === 'COUNTY' || landTypeFilter === 'CITY'}
                   />
                   <span>
                     <span className="legend-dot" style={{backgroundColor: '#92400e'}}></span>
@@ -483,7 +619,7 @@ function App() {
                     type="checkbox"
                     checked={agencyFilters.FWS}
                     onChange={() => handleAgencyToggle('FWS')}
-                    disabled={landTypeFilter === 'STATE'}
+                    disabled={landTypeFilter === 'STATE' || landTypeFilter === 'COUNTY' || landTypeFilter === 'CITY'}
                   />
                   <span>
                     <span className="legend-dot" style={{backgroundColor: '#9333ea'}}></span>
@@ -495,7 +631,7 @@ function App() {
                     type="checkbox"
                     checked={agencyFilters.BLM}
                     onChange={() => handleAgencyToggle('BLM')}
-                    disabled={landTypeFilter === 'STATE'}
+                    disabled={landTypeFilter === 'STATE' || landTypeFilter === 'COUNTY' || landTypeFilter === 'CITY'}
                   />
                   <span>
                     <span className="legend-dot" style={{backgroundColor: '#ea580c'}}></span>
@@ -516,6 +652,17 @@ function App() {
               onClick={() => {
                 setLandTypeFilter('ALL')
                 setAgencyFilters({ NPS: false, USFS: false, FWS: false, BLM: false })
+                setAmenitiesFilters({
+                  camping: false,
+                  hiking: false,
+                  fishing: false,
+                  swimming: false,
+                  boating: false,
+                  picnicking: false,
+                  playground: false,
+                  'visitor center': false,
+                  'restrooms': false
+                })
               }}
             >
               Clear All Filters
@@ -560,7 +707,7 @@ function App() {
                           <p><strong>Distance:</strong> {park.distance.toFixed(1)} miles</p>
                         )}
                         <p><strong>State:</strong> {park.state}</p>
-                        <p><strong>Agency:</strong> {getAgencyFullName(park.agency)}</p>
+                        <p><strong>Type:</strong> {getAgencyFullName(park.agency)}</p>
                         <button 
                           className="detail-button"
                           onClick={() => handleMarkerClick(park)}
@@ -655,6 +802,18 @@ function App() {
                 )}
               </div>
 
+              {/* ENHANCED: Amenities Section */}
+              {selectedPark.amenities && selectedPark.amenities.length > 0 && (
+                <div className="detail-section">
+                  <h3>🏕️ Amenities</h3>
+                  <div className="activities-tags">
+                    {selectedPark.amenities.map((amenity, index) => (
+                      <span key={index} className="activity-tag">{amenity}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Activities */}
               {selectedPark.activities && selectedPark.activities.length > 0 && (
                 <div className="detail-section">
@@ -674,12 +833,15 @@ function App() {
                 {selectedPark.county && (
                   <p><strong>County:</strong> {selectedPark.county}</p>
                 )}
+                {selectedPark.city && (
+                  <p><strong>City:</strong> {selectedPark.city}</p>
+                )}
               </div>
 
               {/* Management */}
               <div className="detail-section">
                 <h3>Management</h3>
-                <p><strong>Agency:</strong> {getAgencyFullName(selectedPark.agency)}</p>
+                <p><strong>Type:</strong> {getAgencyFullName(selectedPark.agency)}</p>
                 {selectedPark.agency_full_name && (
                   <p><strong>Managed By:</strong> {selectedPark.agency_full_name}</p>
                 )}
@@ -751,7 +913,7 @@ function App() {
         )}
       </div>
 
-      {/* Stats Footer */}
+      {/* ENHANCED Stats Footer with County/City */}
       <div className="stats">
         <div className="stats-left">
           <span>Showing {displayParks.length} parks</span>
@@ -762,7 +924,15 @@ function App() {
         <div className="legend">
           <span className="legend-item">
             <span className="legend-dot" style={{backgroundColor: '#4a7c2f'}}></span>
-            State Parks
+            State
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot" style={{backgroundColor: '#0891b2'}}></span>
+            County
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot" style={{backgroundColor: '#eab308'}}></span>
+            City
           </span>
           <span className="legend-item">
             <span className="legend-dot" style={{backgroundColor: '#2563eb'}}></span>
