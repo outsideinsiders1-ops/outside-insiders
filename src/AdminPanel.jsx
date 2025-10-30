@@ -7,7 +7,7 @@ function AdminPanel() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const API_URL = process.env.REACT_APP_SCRAPER_API_URL;
+  const API_URL = import.meta.env.VITE_SCRAPER_API_URL;;
 
   const handleScrape = async () => {
     if (!locationName.trim()) {
