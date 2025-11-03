@@ -18,7 +18,7 @@ function AdminPanel() {
   const [showAddApi, setShowAddApi] = useState(false);
   const [newApiName, setNewApiName] = useState('');
   const [newApiType, setNewApiType] = useState('recreation_gov');
-  const [newApiUrl, setNewApiUrl] = useState('');
+  const [newApiUrl, setNewApiUrl] = useState('https://ridb.recreation.gov/api/v1');
   const [newApiKey, setNewApiKey] = useState('');
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
@@ -153,7 +153,7 @@ function AdminPanel() {
       const data = await response.json();
       
       if (response.ok) {
-        setApiSuccess(`✅ ${name} synced successfully!`);
+        setApiSuccess(`âœ… ${name} synced successfully!`);
         loadApiSources();
       } else {
         setApiError(data.error || `Failed to sync ${name}`);
@@ -185,7 +185,7 @@ function AdminPanel() {
       const data = await response.json();
       
       if (response.ok) {
-        setApiSuccess(`✅ Synced ${data.syncedCount} API sources successfully!`);
+        setApiSuccess(`âœ… Synced ${data.syncedCount} API sources successfully!`);
         loadApiSources();
       } else {
         setApiError(data.error || 'Failed to sync APIs');
@@ -298,7 +298,7 @@ function AdminPanel() {
   return (
     <div className="admin-panel">
       <div className="admin-header">
-        <h1>🏞️ Outside Insiders Admin Panel</h1>
+        <h1>ðŸžï¸ Outside Insiders Admin Panel</h1>
         <p>Manage park data sources</p>
       </div>
 
@@ -308,19 +308,19 @@ function AdminPanel() {
           className={`tab ${activeTab === 'scraper' ? 'active' : ''}`}
           onClick={() => setActiveTab('scraper')}
         >
-          🌐 Web Scraper
+          ðŸŒ Web Scraper
         </button>
         <button
           className={`tab ${activeTab === 'api' ? 'active' : ''}`}
           onClick={() => setActiveTab('api')}
         >
-          🔌 API Manager
+          ðŸ”Œ API Manager
         </button>
         <button
           className={`tab ${activeTab === 'upload' ? 'active' : ''}`}
           onClick={() => setActiveTab('upload')}
         >
-          📁 File Upload
+          ðŸ“ File Upload
         </button>
       </div>
 
@@ -364,18 +364,18 @@ function AdminPanel() {
               disabled={scrapeLoading}
               className="primary-button"
             >
-              {scrapeLoading ? '🔄 Scraping...' : '🚀 Start Scrape'}
+              {scrapeLoading ? 'ðŸ”„ Scraping...' : 'ðŸš€ Start Scrape'}
             </button>
 
             {scrapeError && (
               <div className="alert alert-error">
-                ❌ {scrapeError}
+                âŒ {scrapeError}
               </div>
             )}
 
             {scrapeResult && (
               <div className="alert alert-success">
-                ✅ {scrapeResult.message}
+                âœ… {scrapeResult.message}
                 {scrapeResult.parksFound && (
                   <div className="result-details">
                     <p>Parks found: {scrapeResult.parksFound}</p>
@@ -403,7 +403,7 @@ function AdminPanel() {
                 onClick={() => setShowAddApi(!showAddApi)}
                 className="secondary-button"
               >
-                {showAddApi ? '✕ Cancel' : '➕ Add API'}
+                {showAddApi ? 'âœ• Cancel' : 'âž• Add API'}
               </button>
             </div>
 
@@ -462,7 +462,7 @@ function AdminPanel() {
                   />
                 </div>
                 <button onClick={handleAddApiSource} className="primary-button">
-                  ✅ Add API Source
+                  âœ… Add API Source
                 </button>
               </div>
             )}
@@ -470,7 +470,7 @@ function AdminPanel() {
             {/* Alerts */}
             {apiError && (
               <div className="alert alert-error">
-                ❌ {apiError}
+                âŒ {apiError}
               </div>
             )}
 
@@ -488,7 +488,7 @@ function AdminPanel() {
                   disabled={syncingAll}
                   className="sync-all-button"
                 >
-                  {syncingAll ? '🔄 Syncing All APIs...' : '⚡ Auto-Sync All Active APIs'}
+                  {syncingAll ? 'ðŸ”„ Syncing All APIs...' : 'âš¡ Auto-Sync All Active APIs'}
                 </button>
                 <p className="sync-note">
                   This will sync all enabled API sources in sequence
@@ -512,7 +512,7 @@ function AdminPanel() {
                       <div className="api-source-info">
                         <h3>{api.name}</h3>
                         <p className="api-url">{api.base_url}</p>
-                        {api.api_key && <span className="api-key-badge">🔑 API Key Set</span>}
+                        {api.api_key && <span className="api-key-badge">ðŸ”‘ API Key Set</span>}
                       </div>
                       <div className="api-source-actions">
                         <label className="toggle-switch">
@@ -538,13 +538,13 @@ function AdminPanel() {
                         disabled={!api.enabled || syncingId === api.id || syncingAll}
                         className="sync-button"
                       >
-                        {syncingId === api.id ? '🔄 Syncing...' : '🔄 Sync Now'}
+                        {syncingId === api.id ? 'ðŸ”„ Syncing...' : 'ðŸ”„ Sync Now'}
                       </button>
                       <button
                         onClick={() => handleDeleteApiSource(api.id)}
                         className="delete-button"
                       >
-                        🗑️ Delete
+                        ðŸ—‘ï¸ Delete
                       </button>
                     </div>
                   </div>
@@ -554,7 +554,7 @@ function AdminPanel() {
 
             {/* API Examples */}
             <div className="api-examples">
-              <h4>💡 Example APIs:</h4>
+              <h4>ðŸ’¡ Example APIs:</h4>
               <ul>
                 <li><strong>NPS:</strong> https://developer.nps.gov/api/v1</li>
                 <li><strong>Recreation.gov:</strong> https://ridb.recreation.gov/api/v1</li>
@@ -608,18 +608,18 @@ function AdminPanel() {
               />
               {selectedFile && (
                 <div className="file-info">
-                  📄 {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                  ðŸ“„ {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
                 </div>
               )}
             </div>
 
             <div className="file-info-box">
-              <h4>📋 Supported File Types:</h4>
+              <h4>ðŸ“‹ Supported File Types:</h4>
               <ul>
                 <li><strong>GeoJSON:</strong> .geojson or .json files</li>
                 <li><strong>Shapefile:</strong> .shp files or .zip containing .shp, .shx, .dbf</li>
               </ul>
-              <p className="note">💡 Max file size: 50 MB</p>
+              <p className="note">ðŸ’¡ Max file size: 50 MB</p>
             </div>
 
             <button
@@ -627,18 +627,18 @@ function AdminPanel() {
               disabled={uploadLoading || !selectedFile}
               className="primary-button"
             >
-              {uploadLoading ? '🔄 Uploading...' : '📤 Upload File'}
+              {uploadLoading ? 'ðŸ”„ Uploading...' : 'ðŸ“¤ Upload File'}
             </button>
 
             {uploadError && (
               <div className="alert alert-error">
-                ❌ {uploadError}
+                âŒ {uploadError}
               </div>
             )}
 
             {uploadResult && (
               <div className="alert alert-success">
-                ✅ {uploadResult.message}
+                âœ… {uploadResult.message}
                 {uploadResult.featuresProcessed && (
                   <div className="result-details">
                     <p>Features processed: {uploadResult.featuresProcessed}</p>
@@ -655,7 +655,7 @@ function AdminPanel() {
 
       {/* Footer Info */}
       <div className="admin-footer">
-        <h4>🛡️ Data Priority System</h4>
+        <h4>ðŸ›¡ï¸ Data Priority System</h4>
         <div className="priority-info">
           <div className="priority-item">
             <span className="priority-badge priority-100">100</span>
