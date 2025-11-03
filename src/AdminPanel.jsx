@@ -6,8 +6,10 @@ function AdminPanel() {
   const [activeTab, setActiveTab] = useState('scraper');
 
   // Web Scraper state
-  const [scrapeType, setScrapeType] = useState('state');
-  const [locationName, setLocationName] = useState('');
+  const [states, setStates] = useState([]);
+  const [loadingStates, setLoadingStates] = useState(false);
+  const [selectedState, setSelectedState] = useState('');
+  const [entityType, setEntityType] = useState('county');
   const [scrapeLoading, setScrapeLoading] = useState(false);
   const [scrapeResult, setScrapeResult] = useState(null);
   const [scrapeError, setScrapeError] = useState(null);
@@ -40,7 +42,27 @@ function AdminPanel() {
     if (activeTab === 'api') {
       loadApiSources();
     }
+    if (activeTab === 'scraper') {
+      loadStates();
+    }
   }, [activeTab]);
+
+  // ==================== LOAD STATES ====================
+  const loadStates = async () => {
+    setLoadingStates(true);
+    try {
+      const response = await fetch(`${API_URL}/api/geo/states`);
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setStates(data.states || []);
+      }
+    } catch (err) {
+      console.error('Error loading states:', err);
+    } finally {
+      setLoadingStates(false);
+    }
+  };
 
   // ==================== API SOURCE MANAGEMENT ====================
   const loadApiSources = async () => {
@@ -199,8 +221,8 @@ function AdminPanel() {
 
   // ==================== WEB SCRAPER ====================
   const handleScrape = async () => {
-    if (!locationName.trim()) {
-      setScrapeError('Please enter a location name');
+    if (!selectedState) {
+      setScrapeError('Please select a state');
       return;
     }
 
@@ -209,14 +231,14 @@ function AdminPanel() {
     setScrapeResult(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/scrape`, {
+      const response = await fetch(`${API_URL}/api/scrape/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: scrapeType,
-          name: locationName
+          state_code: selectedState,
+          entity_type: entityType
         }),
       });
 
@@ -225,7 +247,7 @@ function AdminPanel() {
       if (response.ok) {
         setScrapeResult(data);
       } else {
-        setScrapeError(data.error || 'Scraping failed');
+        setScrapeError(data.error || 'Bulk scraping failed');
       }
     } catch (err) {
       setScrapeError(`Error: ${err.message}`);
@@ -330,16 +352,36 @@ function AdminPanel() {
         {/* ==================== WEB SCRAPER TAB ==================== */}
         {activeTab === 'scraper' && (
           <div className="section">
-            <h2>Web Scraper</h2>
+            <h2>Bulk Web Scraper</h2>
             <p className="section-description">
-              Scrape park data from websites. Priority: 40 (can't overwrite API or file data)
+              Select a state and jurisdiction type to scrape all matching entities. Priority: 40 (can't overwrite API or file data)
             </p>
 
             <div className="form-group">
-              <label>Scrape Type:</label>
+              <label>Select State:</label>
+              {loadingStates ? (
+                <p>Loading states...</p>
+              ) : (
+                <select 
+                  value={selectedState} 
+                  onChange={(e) => setSelectedState(e.target.value)}
+                  disabled={scrapeLoading}
+                >
+                  <option value="">-- Choose a State --</option>
+                  {states.map(state => (
+                    <option key={state.state_code} value={state.state_code}>
+                      {state.name} ({state.state_code})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label>Jurisdiction Type:</label>
               <select 
-                value={scrapeType} 
-                onChange={(e) => setScrapeType(e.target.value)}
+                value={entityType} 
+                onChange={(e) => setEntityType(e.target.value)}
                 disabled={scrapeLoading}
               >
                 <option value="state">State Parks</option>
@@ -348,44 +390,39 @@ function AdminPanel() {
               </select>
             </div>
 
-            <div className="form-group">
-              <label>Location Name:</label>
-              <input
-                type="text"
-                value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
-                placeholder="e.g., California"
-                disabled={scrapeLoading}
-              />
-            </div>
-
             <button
               onClick={handleScrape}
-              disabled={scrapeLoading}
+              disabled={scrapeLoading || !selectedState}
               className="primary-button"
             >
-              {scrapeLoading ? 'ðŸ”„ Scraping...' : 'ðŸš€ Start Scrape'}
+              {scrapeLoading ? '🔄 Scraping...' : '🚀 Scrape All'}
             </button>
 
             {scrapeError && (
               <div className="alert alert-error">
-                âŒ {scrapeError}
+                ❌ {scrapeError}
               </div>
             )}
 
             {scrapeResult && (
               <div className="alert alert-success">
-                âœ… {scrapeResult.message}
-                {scrapeResult.parksFound && (
+                ✅ {scrapeResult.message}
+                {scrapeResult.entity_count && (
                   <div className="result-details">
-                    <p>Parks found: {scrapeResult.parksFound}</p>
-                    <p>Parks added: {scrapeResult.parksAdded}</p>
-                    <p>Parks updated: {scrapeResult.parksUpdated}</p>
-                    <p>Parks skipped: {scrapeResult.parksSkipped}</p>
+                    <p><strong>Entities queued:</strong> {scrapeResult.entity_count}</p>
+                    {scrapeResult.entities && scrapeResult.entities.length > 0 && (
+                      <p><strong>Examples:</strong> {scrapeResult.entities.slice(0, 5).join(', ')}
+                      {scrapeResult.entities.length > 5 && '...'}</p>
+                    )}
+                    <p style={{marginTop: '12px', fontSize: '14px', color: '#666'}}>
+                      ℹ️ Scraping runs in the background. Check your Replit server logs to monitor progress.
+                    </p>
                   </div>
                 )}
               </div>
             )}
+          </div>
+        )}
           </div>
         )}
 
