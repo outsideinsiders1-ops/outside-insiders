@@ -32,7 +32,7 @@ function AdminPanel() {
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
 
-  const API_URL = process.env.REACT_APP_SCRAPER_API_URL;
+  const API_URL = import.meta.env.VITE_SCRAPER_API_URL;
 
   // Load API sources on mount
   useEffect(() => {
