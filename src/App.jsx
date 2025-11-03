@@ -36,14 +36,14 @@ const createCustomIcon = (color) => {
 }
 
 const markerIcons = {
-  STATE: createCustomIcon('#4a7c2f'),     // Green
-  COUNTY: createCustomIcon('#0891b2'),    // Cyan/Teal
-  CITY: createCustomIcon('#eab308'),      // Yellow
-  NPS: createCustomIcon('#2563eb'),       // Blue
-  USFS: createCustomIcon('#92400e'),      // Brown
-  BLM: createCustomIcon('#ea580c'),       // Orange
-  FWS: createCustomIcon('#9333ea'),       // Purple
-  FEDERAL: createCustomIcon('#6b7280')    // Gray
+  'State': createCustomIcon('#4a7c2f'),     // Green - matches DB value
+  'COUNTY': createCustomIcon('#0891b2'),    // Cyan/Teal
+  'CITY': createCustomIcon('#eab308'),      // Yellow
+  'NPS': createCustomIcon('#2563eb'),       // Blue
+  'USFS': createCustomIcon('#92400e'),      // Brown
+  'BLM': createCustomIcon('#ea580c'),       // Orange
+  'FWS': createCustomIcon('#9333ea'),       // Purple
+  'FEDERAL': createCustomIcon('#6b7280')    // Gray
 }
 
 // Component to handle map centering
@@ -164,7 +164,7 @@ function App() {
       if (landTypeFilter === 'FEDERAL') {
         query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
       } else if (landTypeFilter === 'STATE') {
-        query = query.eq('agency', 'STATE')
+        query = query.eq('agency', 'State')
       } else if (landTypeFilter === 'COUNTY') {
         query = query.eq('agency', 'COUNTY')
       } else if (landTypeFilter === 'CITY') {
@@ -223,14 +223,14 @@ function App() {
 
   const getAgencyFullName = (agency) => {
     const names = {
-      STATE: 'State Park',
-      COUNTY: 'County Park',
-      CITY: 'City Park',
-      NPS: 'National Park Service',
-      USFS: 'U.S. Forest Service',
-      BLM: 'Bureau of Land Management',
-      FWS: 'Fish & Wildlife Service',
-      FEDERAL: 'Federal Land'
+      'State': 'State Park',
+      'COUNTY': 'County Park',
+      'CITY': 'City Park',
+      'NPS': 'National Park Service',
+      'USFS': 'U.S. Forest Service',
+      'BLM': 'Bureau of Land Management',
+      'FWS': 'Fish & Wildlife Service',
+      'FEDERAL': 'Federal Land'
     }
     return names[agency] || agency
   }
