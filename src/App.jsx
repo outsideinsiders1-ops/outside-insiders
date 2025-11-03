@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polygon } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import L from 'leaflet'
@@ -98,6 +98,15 @@ function App() {
   const [activitiesExpanded, setActivitiesExpanded] = useState(false)
   const [landTypeExpanded, setLandTypeExpanded] = useState(true)
   const [agenciesExpanded, setAgenciesExpanded] = useState(false)
+
+  // Location search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState(null)
+
+  // Park boundary state
+  const [parkBoundary, setParkBoundary] = useState(null)
+  const [showBoundary, setShowBoundary] = useState(true)
 
   // Check URL for /admin route
   useEffect(() => {
@@ -210,14 +219,75 @@ function App() {
     }
   }
 
-  const handleMarkerClick = (park) => {
+  const handleMarkerClick = async (park) => {
     setSelectedPark(park)
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(12)
+
+    // Fetch park boundary if available
+    try {
+      const { data, error } = await supabase
+        .from('parks')
+        .select('boundary')
+        .eq('id', park.id)
+        .single()
+
+      if (error) {
+        console.error('Error fetching boundary:', error)
+        setParkBoundary(null)
+        return
+      }
+
+      if (data && data.boundary) {
+        // Parse GeoJSON boundary data
+        // Boundary could be stored as GeoJSON or as coordinates array
+        let coordinates = null
+
+        if (typeof data.boundary === 'string') {
+          // If stored as JSON string
+          const parsed = JSON.parse(data.boundary)
+          if (parsed.type === 'Polygon') {
+            coordinates = parsed.coordinates[0] // Get outer ring
+          } else if (parsed.type === 'MultiPolygon') {
+            coordinates = parsed.coordinates[0][0] // Get first polygon outer ring
+          }
+        } else if (data.boundary.type === 'Polygon') {
+          // If already parsed GeoJSON
+          coordinates = data.boundary.coordinates[0]
+        } else if (data.boundary.type === 'MultiPolygon') {
+          coordinates = data.boundary.coordinates[0][0]
+        } else if (Array.isArray(data.boundary)) {
+          // If directly stored as coordinate array
+          coordinates = data.boundary
+        }
+
+        // Convert coordinates to Leaflet format [lat, lng]
+        if (coordinates && coordinates.length > 0) {
+          const leafletCoords = coordinates.map(coord => {
+            // GeoJSON is [lng, lat], Leaflet needs [lat, lng]
+            if (Array.isArray(coord) && coord.length === 2) {
+              return [coord[1], coord[0]]
+            }
+            return coord
+          })
+
+          setParkBoundary(leafletCoords)
+          console.log(`Loaded boundary for ${park.name}`)
+        } else {
+          setParkBoundary(null)
+        }
+      } else {
+        setParkBoundary(null)
+      }
+    } catch (err) {
+      console.error('Error processing boundary:', err)
+      setParkBoundary(null)
+    }
   }
 
   const closeDetailPanel = () => {
     setSelectedPark(null)
+    setParkBoundary(null)
     setMapZoom(userLocation ? 10 : 7)
   }
 
@@ -243,6 +313,48 @@ function App() {
       Math.sin(dLat/2) * Math.sin(dLat/2) +
       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon/2) * Math.sin(dLon/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c
+  }
+
+  const handleLocationSearch = async (e) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+
+    setSearchLoading(true)
+    setSearchError(null)
+
+    try {
+      // Use Mapbox Geocoding API
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${MAPBOX_TOKEN}&country=us&limit=1`
+      )
+
+      const data = await response.json()
+
+      if (data.features && data.features.length > 0) {
+        const [lon, lat] = data.features[0].center
+        const placeName = data.features[0].place_name
+
+        // Set map center to searched location
+        setMapCenter([lat, lon])
+        setMapZoom(10)
+
+        // Set user location for distance calculations
+        setUserLocation({ lat, lon })
+        setSortByDistance(true)
+
+        console.log(`Found location: ${placeName}`)
+      } else {
+        setSearchError('Location not found. Try "City, State" format.')
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error)
+      setSearchError('Error searching location. Please try again.')
+    } finally {
+      setSearchLoading(false)
+    }
+  }
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
     return R * c
   }
@@ -329,6 +441,58 @@ function App() {
         </div>
       </header>
 
+      {/* Location Search Bar */}
+      <div className="search-container">
+        <form onSubmit={handleLocationSearch} className="search-form">
+          <div className="search-input-wrapper">
+            <svg 
+              className="search-icon" 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search location (e.g., Asheville, NC)"
+              className="search-input"
+              disabled={searchLoading}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('')
+                  setSearchError(null)
+                }}
+                className="search-clear"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <button 
+            type="submit" 
+            className="search-button"
+            disabled={searchLoading || !searchQuery.trim()}
+          >
+            {searchLoading ? '🔍...' : 'Search'}
+          </button>
+        </form>
+        {searchError && (
+          <div className="search-error">
+            {searchError}
+          </div>
+        )}
+      </div>
+
       {/* Filter Drawer Button */}
       <button 
         className="filter-drawer-button"
@@ -388,7 +552,7 @@ function App() {
             className="filter-drawer-close"
             onClick={() => setFilterDrawerOpen(false)}
           >
-            ✕
+            âœ•
           </button>
         </div>
 
@@ -401,7 +565,7 @@ function App() {
               onClick={() => setActivitiesExpanded(!activitiesExpanded)}
             >
               <span className="filter-section-title">
-                🎯 Amenities
+                ðŸŽ¯ Amenities
                 {Object.values(amenitiesFilters).filter(Boolean).length > 0 && (
                   <span className="filter-count">
                     {' '}({Object.values(amenitiesFilters).filter(Boolean).length})
@@ -409,7 +573,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {activitiesExpanded ? '▼' : '▶'}
+                {activitiesExpanded ? 'â–¼' : 'â–¶'}
               </span>
             </button>
             {activitiesExpanded && (
@@ -420,7 +584,7 @@ function App() {
                     checked={amenitiesFilters.camping}
                     onChange={() => handleAmenityToggle('camping')}
                   />
-                  <span>🏕️ Camping</span>
+                  <span>ðŸ•ï¸ Camping</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -428,7 +592,7 @@ function App() {
                     checked={amenitiesFilters.hiking}
                     onChange={() => handleAmenityToggle('hiking')}
                   />
-                  <span>🥾 Hiking</span>
+                  <span>ðŸ¥¾ Hiking</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -436,7 +600,7 @@ function App() {
                     checked={amenitiesFilters.fishing}
                     onChange={() => handleAmenityToggle('fishing')}
                   />
-                  <span>🎣 Fishing</span>
+                  <span>ðŸŽ£ Fishing</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -444,7 +608,7 @@ function App() {
                     checked={amenitiesFilters.swimming}
                     onChange={() => handleAmenityToggle('swimming')}
                   />
-                  <span>🏊 Swimming</span>
+                  <span>ðŸŠ Swimming</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -452,7 +616,7 @@ function App() {
                     checked={amenitiesFilters.boating}
                     onChange={() => handleAmenityToggle('boating')}
                   />
-                  <span>⛵ Boating</span>
+                  <span>â›µ Boating</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -460,7 +624,7 @@ function App() {
                     checked={amenitiesFilters.picnicking}
                     onChange={() => handleAmenityToggle('picnicking')}
                   />
-                  <span>🧺 Picnic Areas</span>
+                  <span>ðŸ§º Picnic Areas</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -468,7 +632,7 @@ function App() {
                     checked={amenitiesFilters.playground}
                     onChange={() => handleAmenityToggle('playground')}
                   />
-                  <span>🛝 Playground</span>
+                  <span>ðŸ› Playground</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -476,7 +640,7 @@ function App() {
                     checked={amenitiesFilters['visitor center']}
                     onChange={() => handleAmenityToggle('visitor center')}
                   />
-                  <span>🏛️ Visitor Center</span>
+                  <span>ðŸ›ï¸ Visitor Center</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -484,7 +648,7 @@ function App() {
                     checked={amenitiesFilters.restrooms}
                     onChange={() => handleAmenityToggle('restrooms')}
                   />
-                  <span>🚻 Restrooms</span>
+                  <span>ðŸš» Restrooms</span>
                 </label>
               </div>
             )}
@@ -503,7 +667,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {landTypeExpanded ? '▼' : '▶'}
+                {landTypeExpanded ? 'â–¼' : 'â–¶'}
               </span>
             </button>
             {landTypeExpanded && (
@@ -581,7 +745,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {agenciesExpanded ? '▼' : '▶'}
+                {agenciesExpanded ? 'â–¼' : 'â–¶'}
               </span>
             </button>
             {agenciesExpanded && (
@@ -683,7 +847,7 @@ function App() {
               
               {/* Mapbox Tile Layer - Outdoors Style */}
               <TileLayer
-                attribution='© <a href="https://www.mapbox.com/">Mapbox</a> © <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+                attribution='Â© <a href="https://www.mapbox.com/">Mapbox</a> Â© <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
                 url={`https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`}
                 tileSize={512}
                 zoomOffset={-1}
@@ -719,6 +883,20 @@ function App() {
                   </Marker>
                 )
               })}
+
+              {/* Park Boundary Polygon */}
+              {parkBoundary && showBoundary && (
+                <Polygon
+                  positions={parkBoundary}
+                  pathOptions={{
+                    color: '#4a7c2f',
+                    weight: 3,
+                    opacity: 0.8,
+                    fillColor: '#4a7c2f',
+                    fillOpacity: 0.2
+                  }}
+                />
+              )}
             </MapContainer>
           )}
         </div>
@@ -727,7 +905,7 @@ function App() {
         {selectedPark && (
           <div className="detail-panel">
             <button className="close-button" onClick={closeDetailPanel}>
-              ✕
+              âœ•
             </button>
             
             <div className="detail-content">
@@ -735,7 +913,7 @@ function App() {
               {/* Alerts Banner (if any) */}
               {selectedPark.alerts && selectedPark.alerts.length > 0 && (
                 <div className="alerts-banner">
-                  <div className="alert-icon">⚠️</div>
+                  <div className="alert-icon">âš ï¸</div>
                   <div className="alert-content">
                     <h3>Important Alerts</h3>
                     {selectedPark.alerts.map((alert, index) => (
@@ -744,7 +922,7 @@ function App() {
                         <p>{alert.description}</p>
                         {alert.url && (
                           <a href={alert.url} target="_blank" rel="noopener noreferrer">
-                            More Info →
+                            More Info â†’
                           </a>
                         )}
                       </div>
@@ -761,16 +939,25 @@ function App() {
                 {selectedPark.entrance_fees && selectedPark.entrance_fees.length > 0 && (
                   <span className="badge fee-badge">
                     {selectedPark.entrance_fees[0].cost === '0' || selectedPark.entrance_fees[0].cost === '0.00' 
-                      ? '🎫 Free Entry' 
-                      : `💰 $${selectedPark.entrance_fees[0].cost}`}
+                      ? 'ðŸŽ« Free Entry' 
+                      : `ðŸ’° $${selectedPark.entrance_fees[0].cost}`}
                   </span>
                 )}
                 {selectedPark.distance && (
                   <span className="badge distance-badge">
-                    📍 {selectedPark.distance.toFixed(1)} miles away
+                    ðŸ“ {selectedPark.distance.toFixed(1)} miles away
                   </span>
                 )}
               </div>
+                {parkBoundary && (
+                  <button 
+                    className={`badge boundary-toggle ${showBoundary ? 'active' : ''}`}
+                    onClick={() => setShowBoundary(!showBoundary)}
+                    title={showBoundary ? 'Hide boundary' : 'Show boundary'}
+                  >
+                    {showBoundary ? '🗺 Hide Boundary' : '🗺 Show Boundary'}
+                  </button>
+                )}
 
               {/* Description */}
               {selectedPark.description && (
@@ -784,14 +971,14 @@ function App() {
               <div className="detail-grid">
                 {selectedPark.operating_hours && (
                   <div className="detail-section">
-                    <h3>🕐 Hours Today</h3>
+                    <h3>ðŸ• Hours Today</h3>
                     <p className="hours-today">{getTodaySchedule(selectedPark.operating_hours)}</p>
                   </div>
                 )}
 
                 {(selectedPark.phone || selectedPark.email) && (
                   <div className="detail-section">
-                    <h3>📞 Contact</h3>
+                    <h3>ðŸ“ž Contact</h3>
                     {selectedPark.phone && (
                       <p><a href={`tel:${selectedPark.phone}`}>{selectedPark.phone}</a></p>
                     )}
@@ -805,7 +992,7 @@ function App() {
               {/* Amenities Section */}
               {selectedPark.amenities && selectedPark.amenities.length > 0 && (
                 <div className="detail-section">
-                  <h3>🏕️ Amenities</h3>
+                  <h3>ðŸ•ï¸ Amenities</h3>
                   <div className="activities-tags">
                     {selectedPark.amenities.map((amenity, index) => (
                       <span key={index} className="activity-tag">{amenity}</span>
@@ -817,7 +1004,7 @@ function App() {
               {/* Activities */}
               {selectedPark.activities && selectedPark.activities.length > 0 && (
                 <div className="detail-section">
-                  <h3>🥾 Activities</h3>
+                  <h3>ðŸ¥¾ Activities</h3>
                   <div className="activities-tags">
                     {selectedPark.activities.map((activity, index) => (
                       <span key={index} className="activity-tag">{activity}</span>
@@ -867,7 +1054,7 @@ function App() {
               {/* Weather Info */}
               {selectedPark.weather_info && (
                 <div className="detail-section">
-                  <h3>🌤️ Weather Info</h3>
+                  <h3>ðŸŒ¤ï¸ Weather Info</h3>
                   <p>{selectedPark.weather_info}</p>
                 </div>
               )}
@@ -875,7 +1062,7 @@ function App() {
               {/* Directions Info */}
               {selectedPark.directions_info && (
                 <div className="detail-section">
-                  <h3>🚗 Getting There</h3>
+                  <h3>ðŸš— Getting There</h3>
                   <p>{selectedPark.directions_info}</p>
                 </div>
               )}
@@ -889,7 +1076,7 @@ function App() {
                     rel="noopener noreferrer"
                     className="action-button primary"
                   >
-                    Visit Official Website →
+                    Visit Official Website â†’
                   </a>
                 )}
                 <a 
