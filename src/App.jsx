@@ -12,7 +12,10 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 )
 
-// Enhanced marker icons - now includes COUNTY and CITY
+// Mapbox access token - add this to your .env.local
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+// Enhanced marker icons - includes COUNTY and CITY
 const createCustomIcon = (color) => {
   return L.divIcon({
     className: 'custom-marker',
@@ -79,7 +82,7 @@ function App() {
     BLM: false
   })
   
-  // NEW: Amenities filters
+  // Amenities filters
   const [amenitiesFilters, setAmenitiesFilters] = useState({
     camping: false,
     hiking: false,
@@ -114,12 +117,39 @@ function App() {
     }
   }, [])
 
-  // Fetch parks from Supabase with enhanced filtering
+  // Get user location on mount for "Near Me" auto-zoom
   useEffect(() => {
     if (!showAdmin) {
+      getUserLocation()
       fetchParks()
     }
   }, [landTypeFilter, agencyFilters, amenitiesFilters, showAdmin])
+
+  const getUserLocation = () => {
+    if ('geolocation' in navigator) {
+      setLoadingLocation(true)
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userLat = position.coords.latitude
+          const userLon = position.coords.longitude
+          
+          setUserLocation({ lat: userLat, lon: userLon })
+          setMapCenter([userLat, userLon])
+          setMapZoom(10) // Good "Near Me" zoom level
+          setLoadingLocation(false)
+        },
+        (error) => {
+          console.log('Location access denied or unavailable, showing default view')
+          setLoadingLocation(false)
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 5000,
+          maximumAge: 300000 // 5 minutes
+        }
+      )
+    }
+  }
 
   const fetchParks = async () => {
     setLoading(true)
@@ -130,7 +160,7 @@ function App() {
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
 
-      // Land type filtering - enhanced for county/city
+      // Land type filtering
       if (landTypeFilter === 'FEDERAL') {
         query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
       } else if (landTypeFilter === 'STATE') {
@@ -163,7 +193,6 @@ function App() {
         filteredParks = data.filter(park => {
           if (!park.amenities || park.amenities.length === 0) return false
           
-          // Check if park has ALL selected amenities
           return activeAmenities.every(amenity => 
             park.amenities.some(parkAmenity => 
               parkAmenity.toLowerCase().includes(amenity.toLowerCase())
@@ -189,7 +218,7 @@ function App() {
 
   const closeDetailPanel = () => {
     setSelectedPark(null)
-    setMapZoom(7)
+    setMapZoom(userLocation ? 10 : 7)
   }
 
   const getAgencyFullName = (agency) => {
@@ -206,7 +235,6 @@ function App() {
     return names[agency] || agency
   }
 
-  // Calculate distance between two coordinates
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 3959
     const dLat = (lat2 - lat1) * Math.PI / 180
@@ -219,37 +247,12 @@ function App() {
     return R * c
   }
 
-  // Handle "Near Me" button
   const handleNearMe = () => {
     if (loadingLocation) return
-
-    setLoadingLocation(true)
-    
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const userLat = position.coords.latitude
-          const userLon = position.coords.longitude
-          
-          setUserLocation({ lat: userLat, lon: userLon })
-          setSortByDistance(true)
-          setMapCenter([userLat, userLon])
-          setMapZoom(10)
-          setLoadingLocation(false)
-        },
-        (error) => {
-          console.error('Error getting location:', error)
-          alert('Unable to get your location. Please enable location services.')
-          setLoadingLocation(false)
-        }
-      )
-    } else {
-      alert('Geolocation is not supported by your browser.')
-      setLoadingLocation(false)
-    }
+    getUserLocation()
+    setSortByDistance(true)
   }
 
-  // Handle land type filter change
   const handleLandTypeChange = (type) => {
     setLandTypeFilter(type)
     if (type === 'STATE' || type === 'COUNTY' || type === 'CITY') {
@@ -257,7 +260,6 @@ function App() {
     }
   }
 
-  // Handle specific agency filter toggle
   const handleAgencyToggle = (agency) => {
     setAgencyFilters(prev => ({
       ...prev,
@@ -268,7 +270,6 @@ function App() {
     }
   }
 
-  // NEW: Handle amenities filter toggle
   const handleAmenityToggle = (amenity) => {
     setAmenitiesFilters(prev => ({
       ...prev,
@@ -276,7 +277,6 @@ function App() {
     }))
   }
 
-  // Count active filters
   const getActiveFilterCount = () => {
     let count = 0
     if (landTypeFilter !== 'ALL') count++
@@ -285,7 +285,6 @@ function App() {
     return count
   }
 
-  // Get today's day of week for operating hours
   const getTodaySchedule = (operatingHours) => {
     if (!operatingHours || operatingHours.length === 0) return null
     
@@ -296,7 +295,6 @@ function App() {
     return schedule[today] || 'Hours not available'
   }
 
-  // Calculate distances and sort
   const parksWithDistances = userLocation 
     ? parks.map(park => ({
         ...park,
@@ -313,7 +311,6 @@ function App() {
     ? [...parksWithDistances].sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity))
     : parksWithDistances
 
-  // If admin route, show admin panel
   if (showAdmin) {
     return (
       <div className="app">
@@ -322,7 +319,6 @@ function App() {
     )
   }
 
-  // Otherwise show the main map app
   return (
     <div className="app">
       {/* Header */}
@@ -398,7 +394,7 @@ function App() {
 
         <div className="filter-drawer-content">
           
-          {/* ENHANCED: Activities/Amenities Section - NOW ENABLED! */}
+          {/* Activities/Amenities Section */}
           <div className="filter-section">
             <button 
               className="filter-section-header"
@@ -494,7 +490,7 @@ function App() {
             )}
           </div>
 
-          {/* ENHANCED: Land Type Section - Added County & City */}
+          {/* Land Type Section */}
           <div className="filter-section">
             <button 
               className="filter-section-header"
@@ -684,9 +680,13 @@ function App() {
               style={{ height: '100%', width: '100%' }}
             >
               <MapController center={mapCenter} zoom={mapZoom} />
+              
+              {/* Mapbox Tile Layer - Outdoors Style */}
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='© <a href="https://www.mapbox.com/">Mapbox</a> © <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+                url={`https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`}
+                tileSize={512}
+                zoomOffset={-1}
               />
               
               {displayParks.map((park) => {
@@ -802,7 +802,7 @@ function App() {
                 )}
               </div>
 
-              {/* ENHANCED: Amenities Section */}
+              {/* Amenities Section */}
               {selectedPark.amenities && selectedPark.amenities.length > 0 && (
                 <div className="detail-section">
                   <h3>🏕️ Amenities</h3>
@@ -913,7 +913,7 @@ function App() {
         )}
       </div>
 
-      {/* ENHANCED Stats Footer with County/City */}
+      {/* Stats Footer */}
       <div className="stats">
         <div className="stats-left">
           <span>Showing {displayParks.length} parks</span>
