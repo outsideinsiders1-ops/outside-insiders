@@ -17,6 +17,7 @@ function AdminPanel() {
   const [loadingApiSources, setLoadingApiSources] = useState(true);
   const [showAddApi, setShowAddApi] = useState(false);
   const [newApiName, setNewApiName] = useState('');
+  const [newApiType, setNewApiType] = useState('recreation_gov');
   const [newApiUrl, setNewApiUrl] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [syncingAll, setSyncingAll] = useState(false);
@@ -72,6 +73,7 @@ function AdminPanel() {
         },
         body: JSON.stringify({
           name: newApiName,
+          api_type: newApiType,
           base_url: newApiUrl,
           api_key: newApiKey || null,
           enabled: true
@@ -83,6 +85,7 @@ function AdminPanel() {
       if (response.ok) {
         setApiSuccess('API source added successfully!');
         setNewApiName('');
+        setNewApiType('recreation_gov');
         setNewApiUrl('');
         setNewApiKey('');
         setShowAddApi(false);
@@ -408,13 +411,36 @@ function AdminPanel() {
             {showAddApi && (
               <div className="add-api-form">
                 <h3>Add New API Source</h3>
+                
+                <div className="form-group">
+                  <label>API Type:</label>
+                  <select
+                    value={newApiType}
+                    onChange={(e) => {
+                      setNewApiType(e.target.value);
+                      // Auto-fill URL based on selection
+                      if (e.target.value === 'nps') {
+                        setNewApiUrl('https://developer.nps.gov/api/v1');
+                      } else if (e.target.value === 'recreation_gov') {
+                        setNewApiUrl('https://ridb.recreation.gov/api/v1');
+                      } else {
+                        setNewApiUrl('');
+                      }
+                    }}
+                  >
+                    <option value="recreation_gov">Recreation.gov API</option>
+                    <option value="nps">NPS API</option>
+                    <option value="generic">Generic REST API</option>
+                  </select>
+                </div>
+
                 <div className="form-group">
                   <label>API Name:</label>
                   <input
                     type="text"
                     value={newApiName}
                     onChange={(e) => setNewApiName(e.target.value)}
-                    placeholder="e.g., NPS API, California State Parks API"
+                    placeholder="e.g., Recreation.gov API, California State Parks API"
                   />
                 </div>
                 <div className="form-group">
