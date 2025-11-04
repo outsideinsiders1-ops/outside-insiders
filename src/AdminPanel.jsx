@@ -3,8 +3,7 @@ import './AdminPanel.css';
 
 function AdminPanel() {
   // State for active tab
-  const [activeTab, setActiveTab] = useState('scraper');
-
+  const [activeTab, setActiveTab] = useState('scraper'); // v2
   // Web Scraper state
   const [states, setStates] = useState([]);
   const [loadingStates, setLoadingStates] = useState(false);
