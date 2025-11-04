@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polygon } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -57,6 +57,33 @@ function MapController({ center, zoom }) {
   return null
 }
 
+// Normalize agency names for consistent icon selection
+const normalizeAgency = (agency) => {
+  if (!agency) return 'FEDERAL'
+  
+  const agencyLower = agency.toLowerCase()
+  
+  // Check for state parks
+  if (agencyLower.includes('state')) return 'State'
+  
+  // Check for county parks
+  if (agencyLower.includes('county')) return 'COUNTY'
+  
+  // Check for city/municipal parks
+  if (agencyLower.includes('city') || 
+      agencyLower.includes('municipal') || 
+      agencyLower.includes('town')) return 'CITY'
+  
+  // Federal agencies - check for exact matches
+  if (agency === 'NPS') return 'NPS'
+  if (agency === 'USFS') return 'USFS'
+  if (agency === 'BLM') return 'BLM'
+  if (agency === 'FWS') return 'FWS'
+  
+  // Default
+  return 'FEDERAL'
+}
+
 function App() {
   const [parks, setParks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -107,6 +134,7 @@ function App() {
   // Park boundary state
   const [parkBoundary, setParkBoundary] = useState(null)
   const [showBoundary, setShowBoundary] = useState(true)
+  const [boundaryLoading, setBoundaryLoading] = useState(false)
 
   // Popup refs for controlling popup state
   const popupRefs = useRef({})
@@ -138,7 +166,7 @@ function App() {
     }
   }, [landTypeFilter, agencyFilters, amenitiesFilters, showAdmin])
 
-  const getUserLocation = () => {
+  const getUserLocation = useCallback(() => {
     if ('geolocation' in navigator) {
       setLoadingLocation(true)
       navigator.geolocation.getCurrentPosition(
@@ -162,89 +190,97 @@ function App() {
         }
       )
     }
-  }
+  }, [])
 
- const fetchParks = async () => {
-  setLoading(true)
-  try {
-    let query = supabase
-      .from('parks')
-      .select('*')
-      .not('latitude', 'is', null)
-      .not('longitude', 'is', null)
+  const fetchParks = async () => {
+    setLoading(true)
+    try {
+      let query = supabase
+        .from('parks')
+        .select('*')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
 
-    // Land type filtering - MORE FLEXIBLE
-    if (landTypeFilter === 'FEDERAL') {
-      query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
-    } else if (landTypeFilter === 'STATE') {
-      // Get ALL parks, then filter client-side for anything with "state" in agency
-      // Don't filter at query level since variations exist
-    } else if (landTypeFilter === 'COUNTY') {
-      // Similar flexible approach for county
-    } else if (landTypeFilter === 'CITY') {
-      // Similar flexible approach for city
-    }
-
-    // Specific agency filters
-    if (landTypeFilter !== 'STATE' && landTypeFilter !== 'COUNTY' && landTypeFilter !== 'CITY') {
-      const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
-      if (selectedAgencies.length > 0) {
-        query = query.in('agency', selectedAgencies)
+      // Land type filtering - MORE FLEXIBLE
+      if (landTypeFilter === 'FEDERAL') {
+        query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
       }
-    }
+      // State, County, City filtering happens client-side for flexibility
 
-    const { data, error } = await query
+      // Specific agency filters
+      if (landTypeFilter !== 'STATE' && landTypeFilter !== 'COUNTY' && landTypeFilter !== 'CITY') {
+        const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
+        if (selectedAgencies.length > 0) {
+          query = query.in('agency', selectedAgencies)
+        }
+      }
 
-    if (error) throw error
+      const { data, error } = await query
 
-    console.log(`Loaded ${data.length} parks`)
-    
-    // Client-side filtering for flexible matching
-    let filteredParks = data
-    
-    // Apply flexible land type filtering
-    if (landTypeFilter === 'STATE') {
-      filteredParks = filteredParks.filter(park => 
-        park.agency && park.agency.toLowerCase().includes('state')
-      )
-    } else if (landTypeFilter === 'COUNTY') {
-      filteredParks = filteredParks.filter(park => 
-        park.agency && park.agency.toLowerCase().includes('county')
-      )
-    } else if (landTypeFilter === 'CITY') {
-      filteredParks = filteredParks.filter(park => 
-        park.agency && (
-          park.agency.toLowerCase().includes('city') ||
-          park.agency.toLowerCase().includes('municipal') ||
-          park.agency.toLowerCase().includes('town')
+      if (error) throw error
+
+      console.log(`Loaded ${data.length} parks`)
+      
+      // Client-side filtering for flexible matching
+      let filteredParks = data
+      
+      // Apply flexible land type filtering
+      if (landTypeFilter === 'STATE') {
+        filteredParks = filteredParks.filter(park => 
+          park.agency && park.agency.toLowerCase().includes('state')
         )
-      )
-    }
-    
-    // Apply amenities filtering
-    const activeAmenities = Object.keys(amenitiesFilters).filter(key => amenitiesFilters[key])
-    
-    if (activeAmenities.length > 0) {
-      filteredParks = filteredParks.filter(park => {
-        if (!park.amenities || park.amenities.length === 0) return false
-        
-        return activeAmenities.every(amenity => 
-          park.amenities.some(parkAmenity => 
-            parkAmenity.toLowerCase().includes(amenity.toLowerCase())
+      } else if (landTypeFilter === 'COUNTY') {
+        filteredParks = filteredParks.filter(park => 
+          park.agency && park.agency.toLowerCase().includes('county')
+        )
+      } else if (landTypeFilter === 'CITY') {
+        filteredParks = filteredParks.filter(park => 
+          park.agency && (
+            park.agency.toLowerCase().includes('city') ||
+            park.agency.toLowerCase().includes('municipal') ||
+            park.agency.toLowerCase().includes('town')
           )
         )
-      })
+      }
+      
+      // Apply amenities filtering
+      const activeAmenities = Object.keys(amenitiesFilters).filter(key => amenitiesFilters[key])
+      
+      if (activeAmenities.length > 0) {
+        filteredParks = filteredParks.filter(park => {
+          if (!park.amenities || park.amenities.length === 0) return false
+          
+          return activeAmenities.every(amenity => 
+            park.amenities.some(parkAmenity => 
+              parkAmenity.toLowerCase().includes(amenity.toLowerCase())
+            )
+          )
+        })
+      }
+      
+      setParks(filteredParks)
+    } catch (error) {
+      console.error('Error fetching parks:', error)
+      alert('Error loading parks. Check console for details.')
+    } finally {
+      setLoading(false)
     }
-    
-    setParks(filteredParks)
-  } catch (error) {
-    console.error('Error fetching parks:', error)
-    alert('Error loading parks. Check console for details.')
-  } finally {
-    setLoading(false)
   }
-}
-  // UPDATED: Modified to close popup when opening detail panel
+
+  // Calculate distance function
+  const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
+    const R = 3959
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c
+  }, [])
+
+  // Modified to close popup when opening detail panel
   const handleMarkerClick = async (park) => {
     // Close the popup when opening detail panel
     setOpenPopupId(null)
@@ -254,6 +290,9 @@ function App() {
     setMapZoom(12)
 
     // Fetch park boundary if available
+    setBoundaryLoading(true)
+    setParkBoundary(null)
+    
     try {
       const { data, error } = await supabase
         .from('parks')
@@ -269,16 +308,19 @@ function App() {
 
       if (data && data.boundary) {
         // Parse GeoJSON boundary data
-        // Boundary could be stored as GeoJSON or as coordinates array
         let coordinates = null
 
         if (typeof data.boundary === 'string') {
           // If stored as JSON string
-          const parsed = JSON.parse(data.boundary)
-          if (parsed.type === 'Polygon') {
-            coordinates = parsed.coordinates[0] // Get outer ring
-          } else if (parsed.type === 'MultiPolygon') {
-            coordinates = parsed.coordinates[0][0] // Get first polygon outer ring
+          try {
+            const parsed = JSON.parse(data.boundary)
+            if (parsed.type === 'Polygon') {
+              coordinates = parsed.coordinates[0] // Get outer ring
+            } else if (parsed.type === 'MultiPolygon') {
+              coordinates = parsed.coordinates[0][0] // Get first polygon outer ring
+            }
+          } catch (parseError) {
+            console.error('Error parsing boundary JSON:', parseError)
           }
         } else if (data.boundary.type === 'Polygon') {
           // If already parsed GeoJSON
@@ -311,6 +353,8 @@ function App() {
     } catch (err) {
       console.error('Error processing boundary:', err)
       setParkBoundary(null)
+    } finally {
+      setBoundaryLoading(false)
     }
   }
 
@@ -331,20 +375,9 @@ function App() {
       'FWS': 'Fish & Wildlife Service',
       'FEDERAL': 'Federal Land'
     }
-    return names[agency] || agency
-  }
-
-  // FIXED: Only one calculateDistance function definition
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 3959
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLon = (lon2 - lon1) * Math.PI / 180
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon/2) * Math.sin(dLon/2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
+    // Use normalized agency for lookup
+    const normalized = normalizeAgency(agency)
+    return names[normalized] || agency
   }
 
   const handleLocationSearch = async (e) => {
@@ -373,6 +406,9 @@ function App() {
         // Set user location for distance calculations
         setUserLocation({ lat, lon })
         setSortByDistance(true)
+        
+        // Clear any error on success
+        setSearchError(null)
 
         console.log(`Found location: ${placeName}`)
       } else {
@@ -434,21 +470,27 @@ function App() {
     return schedule[today] || 'Hours not available'
   }
 
-  const parksWithDistances = userLocation 
-    ? parks.map(park => ({
-        ...park,
-        distance: calculateDistance(
-          userLocation.lat, 
-          userLocation.lon, 
-          park.latitude, 
-          park.longitude
-        )
-      }))
-    : parks
+  // Memoized parks with distances for performance
+  const parksWithDistances = useMemo(() => {
+    if (!userLocation) return parks
+    
+    return parks.map(park => ({
+      ...park,
+      distance: calculateDistance(
+        userLocation.lat, 
+        userLocation.lon, 
+        park.latitude, 
+        park.longitude
+      )
+    }))
+  }, [parks, userLocation, calculateDistance])
 
-  const displayParks = sortByDistance 
-    ? [...parksWithDistances].sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity))
-    : parksWithDistances
+  const displayParks = useMemo(() => {
+    if (sortByDistance) {
+      return [...parksWithDistances].sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity))
+    }
+    return parksWithDistances
+  }, [parksWithDistances, sortByDistance])
 
   if (showAdmin) {
     return (
@@ -880,41 +922,12 @@ function App() {
                 zoomOffset={-1}
               />
               
-              {/* UPDATED: Added controlled popup state */}
-             {displayParks.map((park) => {
-  // More flexible icon selection based on agency text
-  let icon = markerIcons.FEDERAL // default gray
-  
-  if (park.agency) {
-    const agencyLower = park.agency.toLowerCase()
-    
-    // Check for state parks (anything with "state" in the name)
-    if (agencyLower.includes('state')) {
-      icon = markerIcons.State // Green
-    }
-    // Check for county parks
-    else if (agencyLower.includes('county')) {
-      icon = markerIcons.COUNTY // Cyan/Teal
-    }
-    // Check for city parks
-    else if (agencyLower.includes('city') || agencyLower.includes('municipal') || agencyLower.includes('town')) {
-      icon = markerIcons.CITY // Yellow
-    }
-    // Federal agencies
-    else if (park.agency === 'NPS') {
-      icon = markerIcons.NPS // Blue
-    }
-    else if (park.agency === 'USFS') {
-      icon = markerIcons.USFS // Brown
-    }
-    else if (park.agency === 'BLM') {
-      icon = markerIcons.BLM // Orange
-    }
-    else if (park.agency === 'FWS') {
-      icon = markerIcons.FWS // Purple
-    }
-  }
-  
+              {/* Fixed: Added proper return statement and normalized agency for icons */}
+              {displayParks.map((park) => {
+                const normalizedAgency = normalizeAgency(park.agency)
+                const icon = markerIcons[normalizedAgency] || markerIcons.FEDERAL
+                
+                return (
                   <Marker
                     key={park.id}
                     position={[park.latitude, park.longitude]}
@@ -1035,6 +1048,9 @@ function App() {
                   >
                     {showBoundary ? '🗺 Hide Boundary' : '🗺 Show Boundary'}
                   </button>
+                )}
+                {boundaryLoading && (
+                  <span className="badge">Loading boundary...</span>
                 )}
               </div>
 
