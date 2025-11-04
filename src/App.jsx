@@ -219,6 +219,7 @@ function App() {
     }
   }
 
+  // UPDATED: Modified to handle popup click differently
   const handleMarkerClick = async (park) => {
     setSelectedPark(park)
     setMapCenter([park.latitude, park.longitude])
@@ -851,6 +852,7 @@ function App() {
                 zoomOffset={-1}
               />
               
+              {/* UPDATED: Marker now only shows popup on click, not detail panel */}
               {displayParks.map((park) => {
                 const icon = markerIcons[park.agency] || markerIcons.FEDERAL
                 return (
@@ -859,7 +861,8 @@ function App() {
                     position={[park.latitude, park.longitude]}
                     icon={icon}
                     eventHandlers={{
-                      click: () => handleMarkerClick(park)
+                      // Removed the direct handleMarkerClick here
+                      // Now the popup will show on marker click only
                     }}
                   >
                     <Popup>
@@ -872,7 +875,11 @@ function App() {
                         <p><strong>Type:</strong> {getAgencyFullName(park.agency)}</p>
                         <button 
                           className="detail-button"
-                          onClick={() => handleMarkerClick(park)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // This will open the detail panel when clicked
+                            handleMarkerClick(park);
+                          }}
                         >
                           View Details
                         </button>
@@ -883,7 +890,7 @@ function App() {
               })}
 
               {/* Park Boundary Polygon */}
-              {parkBoundary && showBoundary && (
+              {parkBoundary && showBoundary && selectedPark && (
                 <Polygon
                   positions={parkBoundary}
                   pathOptions={{
