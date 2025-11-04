@@ -164,65 +164,86 @@ function App() {
     }
   }
 
-  const fetchParks = async () => {
-    setLoading(true)
-    try {
-      let query = supabase
-        .from('parks')
-        .select('*')
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null)
+ const fetchParks = async () => {
+  setLoading(true)
+  try {
+    let query = supabase
+      .from('parks')
+      .select('*')
+      .not('latitude', 'is', null)
+      .not('longitude', 'is', null)
 
-      // Land type filtering
-      if (landTypeFilter === 'FEDERAL') {
-        query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
-      } else if (landTypeFilter === 'STATE') {
-        query = query.eq('agency', 'State')
-      } else if (landTypeFilter === 'COUNTY') {
-        query = query.eq('agency', 'COUNTY')
-      } else if (landTypeFilter === 'CITY') {
-        query = query.eq('agency', 'CITY')
-      }
-
-      // Specific agency filters
-      if (landTypeFilter !== 'STATE' && landTypeFilter !== 'COUNTY' && landTypeFilter !== 'CITY') {
-        const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
-        if (selectedAgencies.length > 0) {
-          query = query.in('agency', selectedAgencies)
-        }
-      }
-
-      const { data, error } = await query
-
-      if (error) throw error
-
-      console.log(`Loaded ${data.length} parks`)
-      
-      // Client-side amenities filtering
-      let filteredParks = data
-      const activeAmenities = Object.keys(amenitiesFilters).filter(key => amenitiesFilters[key])
-      
-      if (activeAmenities.length > 0) {
-        filteredParks = data.filter(park => {
-          if (!park.amenities || park.amenities.length === 0) return false
-          
-          return activeAmenities.every(amenity => 
-            park.amenities.some(parkAmenity => 
-              parkAmenity.toLowerCase().includes(amenity.toLowerCase())
-            )
-          )
-        })
-      }
-      
-      setParks(filteredParks)
-    } catch (error) {
-      console.error('Error fetching parks:', error)
-      alert('Error loading parks. Check console for details.')
-    } finally {
-      setLoading(false)
+    // Land type filtering - MORE FLEXIBLE
+    if (landTypeFilter === 'FEDERAL') {
+      query = query.in('agency', ['NPS', 'USFS', 'BLM', 'FWS'])
+    } else if (landTypeFilter === 'STATE') {
+      // Get ALL parks, then filter client-side for anything with "state" in agency
+      // Don't filter at query level since variations exist
+    } else if (landTypeFilter === 'COUNTY') {
+      // Similar flexible approach for county
+    } else if (landTypeFilter === 'CITY') {
+      // Similar flexible approach for city
     }
-  }
 
+    // Specific agency filters
+    if (landTypeFilter !== 'STATE' && landTypeFilter !== 'COUNTY' && landTypeFilter !== 'CITY') {
+      const selectedAgencies = Object.keys(agencyFilters).filter(key => agencyFilters[key])
+      if (selectedAgencies.length > 0) {
+        query = query.in('agency', selectedAgencies)
+      }
+    }
+
+    const { data, error } = await query
+
+    if (error) throw error
+
+    console.log(`Loaded ${data.length} parks`)
+    
+    // Client-side filtering for flexible matching
+    let filteredParks = data
+    
+    // Apply flexible land type filtering
+    if (landTypeFilter === 'STATE') {
+      filteredParks = filteredParks.filter(park => 
+        park.agency && park.agency.toLowerCase().includes('state')
+      )
+    } else if (landTypeFilter === 'COUNTY') {
+      filteredParks = filteredParks.filter(park => 
+        park.agency && park.agency.toLowerCase().includes('county')
+      )
+    } else if (landTypeFilter === 'CITY') {
+      filteredParks = filteredParks.filter(park => 
+        park.agency && (
+          park.agency.toLowerCase().includes('city') ||
+          park.agency.toLowerCase().includes('municipal') ||
+          park.agency.toLowerCase().includes('town')
+        )
+      )
+    }
+    
+    // Apply amenities filtering
+    const activeAmenities = Object.keys(amenitiesFilters).filter(key => amenitiesFilters[key])
+    
+    if (activeAmenities.length > 0) {
+      filteredParks = filteredParks.filter(park => {
+        if (!park.amenities || park.amenities.length === 0) return false
+        
+        return activeAmenities.every(amenity => 
+          park.amenities.some(parkAmenity => 
+            parkAmenity.toLowerCase().includes(amenity.toLowerCase())
+          )
+        )
+      })
+    }
+    
+    setParks(filteredParks)
+  } catch (error) {
+    console.error('Error fetching parks:', error)
+    alert('Error loading parks. Check console for details.')
+  } finally {
+    setLoading(false)
+  }
+}
   // UPDATED: Modified to close popup when opening detail panel
   const handleMarkerClick = async (park) => {
     // Close the popup when opening detail panel
@@ -860,9 +881,40 @@ function App() {
               />
               
               {/* UPDATED: Added controlled popup state */}
-              {displayParks.map((park) => {
-                const icon = markerIcons[park.agency] || markerIcons.FEDERAL
-                return (
+             {displayParks.map((park) => {
+  // More flexible icon selection based on agency text
+  let icon = markerIcons.FEDERAL // default gray
+  
+  if (park.agency) {
+    const agencyLower = park.agency.toLowerCase()
+    
+    // Check for state parks (anything with "state" in the name)
+    if (agencyLower.includes('state')) {
+      icon = markerIcons.State // Green
+    }
+    // Check for county parks
+    else if (agencyLower.includes('county')) {
+      icon = markerIcons.COUNTY // Cyan/Teal
+    }
+    // Check for city parks
+    else if (agencyLower.includes('city') || agencyLower.includes('municipal') || agencyLower.includes('town')) {
+      icon = markerIcons.CITY // Yellow
+    }
+    // Federal agencies
+    else if (park.agency === 'NPS') {
+      icon = markerIcons.NPS // Blue
+    }
+    else if (park.agency === 'USFS') {
+      icon = markerIcons.USFS // Brown
+    }
+    else if (park.agency === 'BLM') {
+      icon = markerIcons.BLM // Orange
+    }
+    else if (park.agency === 'FWS') {
+      icon = markerIcons.FWS // Purple
+    }
+  }
+  
                   <Marker
                     key={park.id}
                     position={[park.latitude, park.longitude]}
