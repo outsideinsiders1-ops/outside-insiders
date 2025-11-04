@@ -305,6 +305,7 @@ function App() {
     return names[agency] || agency
   }
 
+  // FIXED: Only one calculateDistance function definition
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 3959
     const dLat = (lat2 - lat1) * Math.PI / 180
@@ -354,9 +355,6 @@ function App() {
     } finally {
       setSearchLoading(false)
     }
-  }
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
   }
 
   const handleNearMe = () => {
@@ -552,7 +550,7 @@ function App() {
             className="filter-drawer-close"
             onClick={() => setFilterDrawerOpen(false)}
           >
-            âœ•
+            ✕
           </button>
         </div>
 
@@ -565,7 +563,7 @@ function App() {
               onClick={() => setActivitiesExpanded(!activitiesExpanded)}
             >
               <span className="filter-section-title">
-                ðŸŽ¯ Amenities
+                🎯 Amenities
                 {Object.values(amenitiesFilters).filter(Boolean).length > 0 && (
                   <span className="filter-count">
                     {' '}({Object.values(amenitiesFilters).filter(Boolean).length})
@@ -573,7 +571,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {activitiesExpanded ? 'â–¼' : 'â–¶'}
+                {activitiesExpanded ? '▼' : '▶'}
               </span>
             </button>
             {activitiesExpanded && (
@@ -584,7 +582,7 @@ function App() {
                     checked={amenitiesFilters.camping}
                     onChange={() => handleAmenityToggle('camping')}
                   />
-                  <span>ðŸ•ï¸ Camping</span>
+                  <span>🏕️ Camping</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -592,7 +590,7 @@ function App() {
                     checked={amenitiesFilters.hiking}
                     onChange={() => handleAmenityToggle('hiking')}
                   />
-                  <span>ðŸ¥¾ Hiking</span>
+                  <span>🥾 Hiking</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -600,7 +598,7 @@ function App() {
                     checked={amenitiesFilters.fishing}
                     onChange={() => handleAmenityToggle('fishing')}
                   />
-                  <span>ðŸŽ£ Fishing</span>
+                  <span>🎣 Fishing</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -608,7 +606,7 @@ function App() {
                     checked={amenitiesFilters.swimming}
                     onChange={() => handleAmenityToggle('swimming')}
                   />
-                  <span>ðŸŠ Swimming</span>
+                  <span>🏊 Swimming</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -616,7 +614,7 @@ function App() {
                     checked={amenitiesFilters.boating}
                     onChange={() => handleAmenityToggle('boating')}
                   />
-                  <span>â›µ Boating</span>
+                  <span>⛵ Boating</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -624,7 +622,7 @@ function App() {
                     checked={amenitiesFilters.picnicking}
                     onChange={() => handleAmenityToggle('picnicking')}
                   />
-                  <span>ðŸ§º Picnic Areas</span>
+                  <span>🧺 Picnic Areas</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -632,7 +630,7 @@ function App() {
                     checked={amenitiesFilters.playground}
                     onChange={() => handleAmenityToggle('playground')}
                   />
-                  <span>ðŸ› Playground</span>
+                  <span>🛝 Playground</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -640,7 +638,7 @@ function App() {
                     checked={amenitiesFilters['visitor center']}
                     onChange={() => handleAmenityToggle('visitor center')}
                   />
-                  <span>ðŸ›ï¸ Visitor Center</span>
+                  <span>🏛️ Visitor Center</span>
                 </label>
                 <label className="filter-option">
                   <input 
@@ -648,7 +646,7 @@ function App() {
                     checked={amenitiesFilters.restrooms}
                     onChange={() => handleAmenityToggle('restrooms')}
                   />
-                  <span>ðŸš» Restrooms</span>
+                  <span>🚻 Restrooms</span>
                 </label>
               </div>
             )}
@@ -667,7 +665,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {landTypeExpanded ? 'â–¼' : 'â–¶'}
+                {landTypeExpanded ? '▼' : '▶'}
               </span>
             </button>
             {landTypeExpanded && (
@@ -745,7 +743,7 @@ function App() {
                 )}
               </span>
               <span className="filter-section-arrow">
-                {agenciesExpanded ? 'â–¼' : 'â–¶'}
+                {agenciesExpanded ? '▼' : '▶'}
               </span>
             </button>
             {agenciesExpanded && (
@@ -847,7 +845,7 @@ function App() {
               
               {/* Mapbox Tile Layer - Outdoors Style */}
               <TileLayer
-                attribution='Â© <a href="https://www.mapbox.com/">Mapbox</a> Â© <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+                attribution='© <a href="https://www.mapbox.com/">Mapbox</a> © <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
                 url={`https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`}
                 tileSize={512}
                 zoomOffset={-1}
@@ -905,7 +903,7 @@ function App() {
         {selectedPark && (
           <div className="detail-panel">
             <button className="close-button" onClick={closeDetailPanel}>
-              âœ•
+              ✕
             </button>
             
             <div className="detail-content">
@@ -913,7 +911,7 @@ function App() {
               {/* Alerts Banner (if any) */}
               {selectedPark.alerts && selectedPark.alerts.length > 0 && (
                 <div className="alerts-banner">
-                  <div className="alert-icon">âš ï¸</div>
+                  <div className="alert-icon">⚠️</div>
                   <div className="alert-content">
                     <h3>Important Alerts</h3>
                     {selectedPark.alerts.map((alert, index) => (
@@ -922,7 +920,7 @@ function App() {
                         <p>{alert.description}</p>
                         {alert.url && (
                           <a href={alert.url} target="_blank" rel="noopener noreferrer">
-                            More Info â†’
+                            More Info →
                           </a>
                         )}
                       </div>
@@ -939,16 +937,15 @@ function App() {
                 {selectedPark.entrance_fees && selectedPark.entrance_fees.length > 0 && (
                   <span className="badge fee-badge">
                     {selectedPark.entrance_fees[0].cost === '0' || selectedPark.entrance_fees[0].cost === '0.00' 
-                      ? 'ðŸŽ« Free Entry' 
-                      : `ðŸ’° $${selectedPark.entrance_fees[0].cost}`}
+                      ? '🎫 Free Entry' 
+                      : `💰 $${selectedPark.entrance_fees[0].cost}`}
                   </span>
                 )}
                 {selectedPark.distance && (
                   <span className="badge distance-badge">
-                    ðŸ“ {selectedPark.distance.toFixed(1)} miles away
+                    📍 {selectedPark.distance.toFixed(1)} miles away
                   </span>
                 )}
-              </div>
                 {parkBoundary && (
                   <button 
                     className={`badge boundary-toggle ${showBoundary ? 'active' : ''}`}
@@ -958,6 +955,7 @@ function App() {
                     {showBoundary ? '🗺 Hide Boundary' : '🗺 Show Boundary'}
                   </button>
                 )}
+              </div>
 
               {/* Description */}
               {selectedPark.description && (
@@ -971,14 +969,14 @@ function App() {
               <div className="detail-grid">
                 {selectedPark.operating_hours && (
                   <div className="detail-section">
-                    <h3>ðŸ• Hours Today</h3>
+                    <h3>🕐 Hours Today</h3>
                     <p className="hours-today">{getTodaySchedule(selectedPark.operating_hours)}</p>
                   </div>
                 )}
 
                 {(selectedPark.phone || selectedPark.email) && (
                   <div className="detail-section">
-                    <h3>ðŸ“ž Contact</h3>
+                    <h3>📞 Contact</h3>
                     {selectedPark.phone && (
                       <p><a href={`tel:${selectedPark.phone}`}>{selectedPark.phone}</a></p>
                     )}
@@ -992,7 +990,7 @@ function App() {
               {/* Amenities Section */}
               {selectedPark.amenities && selectedPark.amenities.length > 0 && (
                 <div className="detail-section">
-                  <h3>ðŸ•ï¸ Amenities</h3>
+                  <h3>🏕️ Amenities</h3>
                   <div className="activities-tags">
                     {selectedPark.amenities.map((amenity, index) => (
                       <span key={index} className="activity-tag">{amenity}</span>
@@ -1004,7 +1002,7 @@ function App() {
               {/* Activities */}
               {selectedPark.activities && selectedPark.activities.length > 0 && (
                 <div className="detail-section">
-                  <h3>ðŸ¥¾ Activities</h3>
+                  <h3>🥾 Activities</h3>
                   <div className="activities-tags">
                     {selectedPark.activities.map((activity, index) => (
                       <span key={index} className="activity-tag">{activity}</span>
@@ -1054,7 +1052,7 @@ function App() {
               {/* Weather Info */}
               {selectedPark.weather_info && (
                 <div className="detail-section">
-                  <h3>ðŸŒ¤ï¸ Weather Info</h3>
+                  <h3>🌤️ Weather Info</h3>
                   <p>{selectedPark.weather_info}</p>
                 </div>
               )}
@@ -1062,7 +1060,7 @@ function App() {
               {/* Directions Info */}
               {selectedPark.directions_info && (
                 <div className="detail-section">
-                  <h3>ðŸš— Getting There</h3>
+                  <h3>🚗 Getting There</h3>
                   <p>{selectedPark.directions_info}</p>
                 </div>
               )}
@@ -1076,7 +1074,7 @@ function App() {
                     rel="noopener noreferrer"
                     className="action-button primary"
                   >
-                    Visit Official Website â†’
+                    Visit Official Website →
                   </a>
                 )}
                 <a 
