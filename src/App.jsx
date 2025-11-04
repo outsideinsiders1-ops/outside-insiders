@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polygon } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -107,6 +107,10 @@ function App() {
   // Park boundary state
   const [parkBoundary, setParkBoundary] = useState(null)
   const [showBoundary, setShowBoundary] = useState(true)
+
+  // Popup refs for controlling popup state
+  const popupRefs = useRef({})
+  const [openPopupId, setOpenPopupId] = useState(null)
 
   // Check URL for /admin route
   useEffect(() => {
@@ -219,8 +223,11 @@ function App() {
     }
   }
 
-  // UPDATED: Modified to handle popup click differently
+  // UPDATED: Modified to close popup when opening detail panel
   const handleMarkerClick = async (park) => {
+    // Close the popup when opening detail panel
+    setOpenPopupId(null)
+    
     setSelectedPark(park)
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(12)
@@ -852,7 +859,7 @@ function App() {
                 zoomOffset={-1}
               />
               
-              {/* UPDATED: Marker now only shows popup on click, not detail panel */}
+              {/* UPDATED: Added controlled popup state */}
               {displayParks.map((park) => {
                 const icon = markerIcons[park.agency] || markerIcons.FEDERAL
                 return (
@@ -861,11 +868,26 @@ function App() {
                     position={[park.latitude, park.longitude]}
                     icon={icon}
                     eventHandlers={{
-                      // Removed the direct handleMarkerClick here
-                      // Now the popup will show on marker click only
+                      click: () => {
+                        // Set this popup as open
+                        setOpenPopupId(park.id)
+                      }
+                    }}
+                    ref={(ref) => {
+                      if (ref) {
+                        popupRefs.current[park.id] = ref
+                      }
                     }}
                   >
-                    <Popup>
+                    <Popup
+                      eventHandlers={{
+                        remove: () => {
+                          if (openPopupId === park.id) {
+                            setOpenPopupId(null)
+                          }
+                        }
+                      }}
+                    >
                       <div className="popup-content">
                         <h3>{park.name}</h3>
                         {park.distance && (
@@ -877,7 +899,7 @@ function App() {
                           className="detail-button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // This will open the detail panel when clicked
+                            // This will open the detail panel and close popup
                             handleMarkerClick(park);
                           }}
                         >
