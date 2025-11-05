@@ -1,96 +1,251 @@
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import './AdminPanel.css';
+
+// Initialize Supabase client
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 function AdminPanel() {
   // State for active tab
   const [activeTab, setActiveTab] = useState('scraper');
 
+  // Geographic reference data
+  const [states, setStates] = useState([]);
+  const [metros, setMetros] = useState([]);
+  const [counties, setCounties] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [loadingGeo, setLoadingGeo] = useState(true);
+
   // Web Scraper state
+  const [selectedState, setSelectedState] = useState('');
+  const [selectedMetro, setSelectedMetro] = useState('');
+  const [selectedCounty, setSelectedCounty] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
   const [scrapeType, setScrapeType] = useState('state');
-  const [locationName, setLocationName] = useState('');
   const [scrapeLoading, setScrapeLoading] = useState(false);
   const [scrapeResult, setScrapeResult] = useState(null);
   const [scrapeError, setScrapeError] = useState(null);
 
-  // API Integrator state
-  const [apiSources, setApiSources] = useState([]);
-  const [loadingApiSources, setLoadingApiSources] = useState(true);
-  const [showAddApi, setShowAddApi] = useState(false);
-  const [newApiName, setNewApiName] = useState('');
-  const [newApiType, setNewApiType] = useState('recreation_gov');
-  const [newApiUrl, setNewApiUrl] = useState('');
-  const [newApiKey, setNewApiKey] = useState('');
-  const [syncingAll, setSyncingAll] = useState(false);
-  const [syncingId, setSyncingId] = useState(null);
-  const [apiError, setApiError] = useState(null);
-  const [apiSuccess, setApiSuccess] = useState(null);
+  // Metro details (counties and cities in selected metro)
+  const [metroDetails, setMetroDetails] = useState({ counties: 0, cities: 0 });
 
-  // File Upload state
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileSource, setFileSource] = useState('state_agency');
-  const [fileState, setFileState] = useState('');
-  const [uploadLoading, setUploadLoading] = useState(false);
-  const [uploadResult, setUploadResult] = useState(null);
-  const [uploadError, setUploadError] = useState(null);
-
-  // UPDATED: No external API URL needed anymore!
-  // We'll use relative URLs since the API is in the same project
-
-  // Load API sources on mount
+  // ==================== LOAD GEOGRAPHIC DATA ====================
   useEffect(() => {
-    if (activeTab === 'api') {
-      loadApiSources();
-    }
-  }, [activeTab]);
+    loadStates();
+  }, []);
 
-  // ==================== API SOURCE MANAGEMENT ====================
-  const loadApiSources = async () => {
-    setLoadingApiSources(true);
+  // Load all states
+  const loadStates = async () => {
+    setLoadingGeo(true);
     try {
-      // For now, use mock data since this endpoint isn't set up yet
-      setApiSources([]);
-    } catch (err) {
-      console.error('Error loading API sources:', err);
+      const { data, error } = await supabase
+        .from('geographic_entities')
+        .select('id, name, state_code')
+        .eq('entity_type', 'state')
+        .order('name');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setStates(data);
+      }
+    } catch (error) {
+      console.error('Error loading states:', error);
     } finally {
-      setLoadingApiSources(false);
+      setLoadingGeo(false);
     }
   };
 
-  const handleAddApiSource = async () => {
-    if (!newApiName.trim() || !newApiUrl.trim()) {
-      setApiError('Please provide API name and URL');
-      return;
+  // Load metros for selected state
+  const loadMetros = async (stateCode) => {
+    try {
+      const { data, error } = await supabase
+        .from('geographic_entities')
+        .select('id, name, metro_id')
+        .eq('entity_type', 'metro')
+        .eq('state_code', stateCode)
+        .order('name');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setMetros(data);
+      } else {
+        setMetros([]);
+      }
+    } catch (error) {
+      console.error('Error loading metros:', error);
+      setMetros([]);
     }
-
-    // This will be implemented later
-    setApiError('API source management coming soon!');
   };
 
-  const handleToggleApiSource = async (id, currentStatus) => {
-    // This will be implemented later
-    console.log('Toggle API source:', id);
+  // Load counties for selected state
+  const loadCounties = async (stateCode) => {
+    try {
+      const { data, error } = await supabase
+        .from('geographic_entities')
+        .select('id, name')
+        .eq('entity_type', 'county')
+        .eq('state_code', stateCode)
+        .order('name');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setCounties(data);
+      } else {
+        setCounties([]);
+      }
+    } catch (error) {
+      console.error('Error loading counties:', error);
+      setCounties([]);
+    }
   };
 
-  const handleDeleteApiSource = async (id) => {
-    // This will be implemented later
-    console.log('Delete API source:', id);
+  // Load cities for selected state
+  const loadCities = async (stateCode) => {
+    try {
+      const { data, error } = await supabase
+        .from('geographic_entities')
+        .select('id, name')
+        .eq('entity_type', 'city')
+        .eq('state_code', stateCode)
+        .order('name');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setCities(data);
+      } else {
+        setCities([]);
+      }
+    } catch (error) {
+      console.error('Error loading cities:', error);
+      setCities([]);
+    }
   };
 
-  const handleSyncOne = async (id, name) => {
-    // This will be implemented later
-    setApiError('API syncing coming soon!');
+  // Get metro details (count of counties and cities)
+  const loadMetroDetails = async (metroId, stateCode) => {
+    try {
+      // Count counties in this metro
+      const { data: countyData, error: countyError } = await supabase
+        .from('geographic_entities')
+        .select('id')
+        .eq('entity_type', 'county')
+        .eq('metro_id', metroId)
+        .eq('state_code', stateCode);
+
+      // Count cities in this metro
+      const { data: cityData, error: cityError } = await supabase
+        .from('geographic_entities')
+        .select('id')
+        .eq('entity_type', 'city')
+        .eq('metro_id', metroId)
+        .eq('state_code', stateCode);
+
+      setMetroDetails({
+        counties: countyData ? countyData.length : 0,
+        cities: cityData ? cityData.length : 0
+      });
+    } catch (error) {
+      console.error('Error loading metro details:', error);
+      setMetroDetails({ counties: 0, cities: 0 });
+    }
   };
 
-  const handleSyncAll = async () => {
-    // This will be implemented later
-    setApiError('Bulk API syncing coming soon!');
+  // Handle state selection change
+  const handleStateChange = async (stateName, stateCode) => {
+    setSelectedState(stateName);
+    setSelectedMetro('');
+    setSelectedCounty('');
+    setSelectedCity('');
+    setMetroDetails({ counties: 0, cities: 0 });
+    
+    if (stateCode) {
+      // Load all geographic data for this state
+      await loadMetros(stateCode);
+      await loadCounties(stateCode);
+      await loadCities(stateCode);
+    } else {
+      setMetros([]);
+      setCounties([]);
+      setCities([]);
+    }
+  };
+
+  // Handle metro selection
+  const handleMetroChange = async (metroName) => {
+    setSelectedMetro(metroName);
+    
+    if (metroName) {
+      // Find the selected metro
+      const metro = metros.find(m => m.name === metroName);
+      const state = states.find(s => s.name === selectedState);
+      
+      if (metro && state) {
+        await loadMetroDetails(metro.metro_id, state.state_code);
+      }
+    } else {
+      setMetroDetails({ counties: 0, cities: 0 });
+    }
+  };
+
+  // Handle scrape type change
+  const handleScrapeTypeChange = (type) => {
+    setScrapeType(type);
+    // Reset selections when changing type
+    setSelectedMetro('');
+    setSelectedCounty('');
+    setSelectedCity('');
+    setMetroDetails({ counties: 0, cities: 0 });
   };
 
   // ==================== WEB SCRAPER ====================
   const handleScrape = async () => {
-    if (!locationName.trim()) {
-      setScrapeError('Please enter a location name');
-      return;
+    // Validate selections based on scrape type
+    let locationName = '';
+    let requestBody = {
+      type: scrapeType,
+      state: selectedState
+    };
+    
+    if (scrapeType === 'state') {
+      if (!selectedState) {
+        setScrapeError('Please select a state');
+        return;
+      }
+      locationName = selectedState;
+      requestBody.name = selectedState;
+      
+    } else if (scrapeType === 'metro') {
+      if (!selectedMetro) {
+        setScrapeError('Please select a metro area');
+        return;
+      }
+      locationName = selectedMetro;
+      const metro = metros.find(m => m.name === selectedMetro);
+      requestBody.name = selectedMetro;
+      requestBody.metroId = metro?.metro_id;
+      
+    } else if (scrapeType === 'county') {
+      if (!selectedCounty) {
+        setScrapeError('Please select a county');
+        return;
+      }
+      locationName = selectedCounty;
+      requestBody.name = selectedCounty;
+      
+    } else if (scrapeType === 'city') {
+      if (!selectedCity) {
+        setScrapeError('Please select a city');
+        return;
+      }
+      locationName = selectedCity;
+      requestBody.name = selectedCity;
     }
 
     setScrapeLoading(true);
@@ -98,24 +253,18 @@ function AdminPanel() {
     setScrapeResult(null);
 
     try {
-      // UPDATED: Use relative URL for same-domain API
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          type: scrapeType,
-          name: locationName
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
       
       if (response.ok && data.success) {
         setScrapeResult(data);
-        // Clear the input for next scrape
-        setLocationName('');
       } else {
         setScrapeError(data.error || 'Scraping failed');
       }
@@ -124,39 +273,6 @@ function AdminPanel() {
     } finally {
       setScrapeLoading(false);
     }
-  };
-
-  // ==================== FILE UPLOAD ====================
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const validTypes = ['.geojson', '.json', '.shp', '.zip'];
-      const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-      
-      if (!validTypes.includes(fileExtension)) {
-        setUploadError('Please upload a GeoJSON (.geojson, .json) or Shapefile (.shp, .zip) file');
-        setSelectedFile(null);
-        return;
-      }
-      
-      setSelectedFile(file);
-      setUploadError(null);
-    }
-  };
-
-  const handleFileUpload = async () => {
-    if (!selectedFile) {
-      setUploadError('Please select a file');
-      return;
-    }
-
-    if (!fileState.trim()) {
-      setUploadError('Please enter a state');
-      return;
-    }
-
-    // This will be implemented later
-    setUploadError('File upload coming soon!');
   };
 
   // ==================== RENDER ====================
@@ -200,41 +316,190 @@ function AdminPanel() {
               Scrape park data from websites. Priority: 40 (can't overwrite API or file data)
             </p>
 
+            {/* Step 1: Select State */}
             <div className="form-group">
-              <label>Scrape Type:</label>
+              <label>1️⃣ Select State:</label>
               <select 
-                value={scrapeType} 
-                onChange={(e) => setScrapeType(e.target.value)}
-                disabled={scrapeLoading}
+                value={selectedState} 
+                onChange={(e) => {
+                  const state = states.find(s => s.name === e.target.value);
+                  handleStateChange(e.target.value, state?.state_code);
+                }}
+                disabled={scrapeLoading || loadingGeo}
               >
-                <option value="state">State Parks</option>
-                <option value="county">County Parks</option>
-                <option value="city">City Parks</option>
+                <option value="">-- Select a State --</option>
+                {states.map(state => (
+                  <option key={state.id} value={state.name}>
+                    {state.name} ({state.state_code})
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div className="form-group">
-              <label>Location Name:</label>
-              <input
-                type="text"
-                value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
-                placeholder="e.g., North Carolina, Georgia, Tennessee"
-                disabled={scrapeLoading}
-              />
-              <small style={{ display: 'block', marginTop: '5px', color: '#666' }}>
-                Try: North Carolina, South Carolina, Georgia, Tennessee, Virginia
-              </small>
-            </div>
+            {/* Step 2: Select Scrape Type */}
+            {selectedState && (
+              <div className="form-group">
+                <label>2️⃣ What to Scrape:</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ cursor: 'pointer', padding: '5px' }}>
+                    <input
+                      type="radio"
+                      value="state"
+                      checked={scrapeType === 'state'}
+                      onChange={(e) => handleScrapeTypeChange(e.target.value)}
+                      disabled={scrapeLoading}
+                    />
+                    <span style={{ marginLeft: '8px' }}>
+                      <strong>State Parks</strong> - All state parks in {selectedState}
+                    </span>
+                  </label>
+                  
+                  <label style={{ cursor: 'pointer', padding: '5px', background: '#e8f4f8' }}>
+                    <input
+                      type="radio"
+                      value="metro"
+                      checked={scrapeType === 'metro'}
+                      onChange={(e) => handleScrapeTypeChange(e.target.value)}
+                      disabled={scrapeLoading}
+                    />
+                    <span style={{ marginLeft: '8px' }}>
+                      <strong>Metro Area</strong> - All counties + cities in a metro (bulk)
+                    </span>
+                  </label>
+                  
+                  <label style={{ cursor: 'pointer', padding: '5px' }}>
+                    <input
+                      type="radio"
+                      value="county"
+                      checked={scrapeType === 'county'}
+                      onChange={(e) => handleScrapeTypeChange(e.target.value)}
+                      disabled={scrapeLoading}
+                    />
+                    <span style={{ marginLeft: '8px' }}>
+                      <strong>Single County</strong> - One specific county
+                    </span>
+                  </label>
+                  
+                  <label style={{ cursor: 'pointer', padding: '5px' }}>
+                    <input
+                      type="radio"
+                      value="city"
+                      checked={scrapeType === 'city'}
+                      onChange={(e) => handleScrapeTypeChange(e.target.value)}
+                      disabled={scrapeLoading}
+                    />
+                    <span style={{ marginLeft: '8px' }}>
+                      <strong>Single City</strong> - One specific city
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
 
+            {/* Step 3: Select Metro (if metro type selected) */}
+            {scrapeType === 'metro' && selectedState && (
+              <div className="form-group">
+                <label>3️⃣ Select Metro Area:</label>
+                <select 
+                  value={selectedMetro} 
+                  onChange={(e) => handleMetroChange(e.target.value)}
+                  disabled={scrapeLoading || metros.length === 0}
+                >
+                  <option value="">-- Select a Metro Area --</option>
+                  {metros.map(metro => (
+                    <option key={metro.id} value={metro.name}>
+                      {metro.name}
+                    </option>
+                  ))}
+                </select>
+                
+                {selectedMetro && metroDetails && (
+                  <div style={{ marginTop: '10px', padding: '10px', background: '#f0f7ed', borderRadius: '5px' }}>
+                    <strong>This metro includes:</strong>
+                    <ul style={{ margin: '5px 0' }}>
+                      <li>{metroDetails.counties} counties</li>
+                      <li>{metroDetails.cities} cities</li>
+                      <li><strong>Total: {metroDetails.counties + metroDetails.cities} entities to scrape</strong></li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Select County (if county type selected) */}
+            {scrapeType === 'county' && selectedState && (
+              <div className="form-group">
+                <label>3️⃣ Select County:</label>
+                <select 
+                  value={selectedCounty} 
+                  onChange={(e) => setSelectedCounty(e.target.value)}
+                  disabled={scrapeLoading || counties.length === 0}
+                >
+                  <option value="">-- Select a County --</option>
+                  {counties.map(county => (
+                    <option key={county.id} value={county.name}>
+                      {county.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Step 3: Select City (if city type selected) */}
+            {scrapeType === 'city' && selectedState && (
+              <div className="form-group">
+                <label>3️⃣ Select City:</label>
+                <select 
+                  value={selectedCity} 
+                  onChange={(e) => setSelectedCity(e.target.value)}
+                  disabled={scrapeLoading || cities.length === 0}
+                >
+                  <option value="">-- Select a City --</option>
+                  {cities.map(city => (
+                    <option key={city.id} value={city.name}>
+                      {city.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Scrape Button */}
             <button
               onClick={handleScrape}
-              disabled={scrapeLoading}
+              disabled={
+                scrapeLoading || 
+                !selectedState ||
+                (scrapeType === 'metro' && !selectedMetro) ||
+                (scrapeType === 'county' && !selectedCounty) ||
+                (scrapeType === 'city' && !selectedCity)
+              }
               className="primary-button"
+              style={{ marginTop: '20px' }}
             >
               {scrapeLoading ? '🔄 Scraping...' : '🚀 Start Scrape'}
             </button>
 
+            {/* Ready to scrape message */}
+            {selectedState && (
+              <div style={{ marginTop: '10px', padding: '15px', background: '#f8f9fa', borderRadius: '5px' }}>
+                <strong>Ready to scrape:</strong>
+                {scrapeType === 'state' && (
+                  <p>All state parks in {selectedState}</p>
+                )}
+                {scrapeType === 'metro' && selectedMetro && (
+                  <p>{metroDetails.counties + metroDetails.cities} locations in {selectedMetro}</p>
+                )}
+                {scrapeType === 'county' && selectedCounty && (
+                  <p>County parks in {selectedCounty}, {selectedState}</p>
+                )}
+                {scrapeType === 'city' && selectedCity && (
+                  <p>City parks in {selectedCity}, {selectedState}</p>
+                )}
+              </div>
+            )}
+
+            {/* Results */}
             {scrapeError && (
               <div className="alert alert-error">
                 ❌ {scrapeError}
@@ -255,13 +520,29 @@ function AdminPanel() {
               </div>
             )}
 
-            <div style={{ marginTop: '30px', padding: '20px', background: '#f0f7ed', borderRadius: '8px' }}>
-              <h4>🎯 How Quality Scoring Works:</h4>
+            {/* Data Summary */}
+            <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px' }}>
+              <h4>📊 Geographic Data Summary:</h4>
               <ul style={{ lineHeight: '1.8' }}>
-                <li><strong>Quality Score:</strong> Each park gets 0-100 points based on data completeness</li>
-                <li><strong>Priority Level:</strong> API data (90+) beats web scrapes (40)</li>
-                <li><strong>Protection:</strong> Good data never gets overwritten by bad data</li>
-                <li><strong>Smart Updates:</strong> Only updates if quality improves</li>
+                <li>Total States: {states.length}</li>
+                {selectedState && (
+                  <>
+                    <li>Metros in {selectedState}: {metros.length}</li>
+                    <li>Counties in {selectedState}: {counties.length}</li>
+                    <li>Cities in {selectedState}: {cities.length}</li>
+                  </>
+                )}
+              </ul>
+            </div>
+
+            {/* Quality Scoring Info */}
+            <div style={{ marginTop: '20px', padding: '20px', background: '#f0f7ed', borderRadius: '8px' }}>
+              <h4>🎯 Data Protection System:</h4>
+              <ul style={{ lineHeight: '1.8' }}>
+                <li><strong>Quality Score:</strong> 0-100 points based on completeness</li>
+                <li><strong>Priority:</strong> API (100) → Files (80) → Scrapes (40)</li>
+                <li><strong>Protection:</strong> High-quality data never overwritten</li>
+                <li><strong>Updates:</strong> Only if quality improves</li>
               </ul>
             </div>
           </div>
@@ -270,36 +551,18 @@ function AdminPanel() {
         {/* ==================== API MANAGER TAB ==================== */}
         {activeTab === 'api' && (
           <div className="section">
-            <div className="section-header">
-              <div>
-                <h2>API Manager</h2>
-                <p className="section-description">
-                  Manage and sync official government APIs. Priority: 100 (highest - protects this data)
-                </p>
-              </div>
-              <button
-                onClick={() => setShowAddApi(!showAddApi)}
-                className="secondary-button"
-              >
-                {showAddApi ? '✕ Cancel' : '➕ Add API'}
-              </button>
-            </div>
-
-            {apiError && (
-              <div className="alert alert-error">
-                ⚠️ {apiError}
-              </div>
-            )}
-
-            {apiSuccess && (
-              <div className="alert alert-success">
-                {apiSuccess}
-              </div>
-            )}
+            <h2>API Manager</h2>
+            <p className="section-description">
+              Connect to official park APIs. Priority: 90-100 (highest protection)
+            </p>
 
             <div className="empty-state">
               <p>API integration coming soon!</p>
-              <p>This will connect to NPS, Recreation.gov, and state park APIs.</p>
+              <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: '10px' }}>
+                <li>NPS API (Priority: 100)</li>
+                <li>Recreation.gov API (Priority: 95)</li>
+                <li>State Park APIs (Priority: 90)</li>
+              </ul>
             </div>
           </div>
         )}
@@ -309,24 +572,22 @@ function AdminPanel() {
           <div className="section">
             <h2>File Upload</h2>
             <p className="section-description">
-              Upload GeoJSON or Shapefile data from agencies. Priority: 80 (can overwrite scrapes but not APIs)
+              Upload GeoJSON or Shapefiles. Priority: 80 (protected from scrapes)
             </p>
-
-            {uploadError && (
-              <div className="alert alert-error">
-                ⚠️ {uploadError}
-              </div>
-            )}
 
             <div className="empty-state">
               <p>File upload coming soon!</p>
-              <p>This will allow uploading GeoJSON and Shapefiles from government agencies.</p>
+              <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: '10px' }}>
+                <li>GeoJSON files</li>
+                <li>Shapefiles (.shp)</li>
+                <li>CSV with coordinates</li>
+              </ul>
             </div>
           </div>
         )}
       </div>
 
-      {/* Footer Info */}
+      {/* Footer */}
       <div className="admin-footer">
         <h4>🛡️ Data Priority System</h4>
         <div className="priority-info">
@@ -336,11 +597,11 @@ function AdminPanel() {
           </div>
           <div className="priority-item">
             <span className="priority-badge priority-80">80</span>
-            <span>Agency Files - Protected from scrapes</span>
+            <span>Agency Files - Protected</span>
           </div>
           <div className="priority-item">
             <span className="priority-badge priority-40">40</span>
-            <span>Web Scrapes - Fills gaps only</span>
+            <span>Web Scrapes - Fills gaps</span>
           </div>
         </div>
       </div>
