@@ -1,3 +1,4 @@
+'use client'
 // src/components/Layout/StatsFooter.jsx
 // Footer showing stats and legend
 

@@ -1,3 +1,4 @@
+'use client'
 // src/components/Parks/FilterDrawer.jsx
 // Filter drawer component for park filtering
 

@@ -1,0 +1,40 @@
+{
+  "app/page.jsx -> ../src/components/Map/MapView": {
+    "id": 8796,
+    "files": [
+      "static/css/ab28570ae691aba6.css",
+      "static/chunks/d0deef33.cac6acee3fffe7af.js",
+      "static/chunks/796.b303ec7b2ca02858.js"
+    ]
+  },
+  "app/page.jsx -> ../src/components/Map/ParkBoundary": {
+    "id": 4143,
+    "files": [
+      "static/chunks/d0deef33.cac6acee3fffe7af.js",
+      "static/chunks/143.f4336ac76c10ba7c.js"
+    ]
+  },
+  "app/page.jsx -> ../src/components/Map/ParkMarker": {
+    "id": 9734,
+    "files": [
+      "static/chunks/d0deef33.cac6acee3fffe7af.js",
+      "static/chunks/734.8a1826db98af294d.js"
+    ]
+  },
+  "node_modules/@supabase/auth-js/dist/module/lib/helpers.js -> @supabase/node-fetch": {
+    "id": 3537,
+    "files": []
+  },
+  "node_modules/@supabase/functions-js/dist/module/helper.js -> @supabase/node-fetch": {
+    "id": 3537,
+    "files": []
+  },
+  "node_modules/@supabase/realtime-js/dist/module/RealtimeClient.js -> @supabase/node-fetch": {
+    "id": 3537,
+    "files": []
+  },
+  "node_modules/@supabase/storage-js/dist/module/lib/helpers.js -> @supabase/node-fetch": {
+    "id": 3537,
+    "files": []
+  }
+}

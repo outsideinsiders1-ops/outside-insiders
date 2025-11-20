@@ -1,3 +1,4 @@
+'use client'
 // src/components/Parks/FilterButton.jsx
 // Button to open filter drawer
 

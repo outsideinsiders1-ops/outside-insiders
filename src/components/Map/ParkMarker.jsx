@@ -1,3 +1,4 @@
+'use client'
 // src/components/Map/ParkMarker.jsx
 // Individual park marker component
 

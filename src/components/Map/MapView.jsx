@@ -1,10 +1,12 @@
+'use client'
+
 // src/components/Map/MapView.jsx
 import React from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
 const MapView = ({ center, zoom, children }) => {
-  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
+  const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
   return (
     <MapContainer

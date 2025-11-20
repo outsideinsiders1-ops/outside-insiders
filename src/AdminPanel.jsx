@@ -1,11 +1,13 @@
+'use client'
+
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import './AdminPanel.css';
 
 // Initialize Supabase client
 const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
 function AdminPanel() {
@@ -132,7 +134,7 @@ function AdminPanel() {
   const loadMetroDetails = async (metroId, stateCode) => {
     try {
       // Count counties in this metro
-      const { data: countyData, error: countyError } = await supabase
+      const { data: countyData } = await supabase
         .from('geographic_entities')
         .select('id')
         .eq('entity_type', 'county')
@@ -140,7 +142,7 @@ function AdminPanel() {
         .eq('state_code', stateCode);
 
       // Count cities in this metro
-      const { data: cityData, error: cityError } = await supabase
+      const { data: cityData } = await supabase
         .from('geographic_entities')
         .select('id')
         .eq('entity_type', 'city')
@@ -207,7 +209,6 @@ function AdminPanel() {
   // ==================== WEB SCRAPER ====================
   const handleScrape = async () => {
     // Validate selections based on scrape type
-    let locationName = '';
     let requestBody = {
       type: scrapeType,
       state: selectedState
@@ -218,7 +219,6 @@ function AdminPanel() {
         setScrapeError('Please select a state');
         return;
       }
-      locationName = selectedState;
       requestBody.name = selectedState;
       
     } else if (scrapeType === 'metro') {
@@ -226,7 +226,6 @@ function AdminPanel() {
         setScrapeError('Please select a metro area');
         return;
       }
-      locationName = selectedMetro;
       const metro = metros.find(m => m.name === selectedMetro);
       requestBody.name = selectedMetro;
       requestBody.metroId = metro?.metro_id;
@@ -236,7 +235,6 @@ function AdminPanel() {
         setScrapeError('Please select a county');
         return;
       }
-      locationName = selectedCounty;
       requestBody.name = selectedCounty;
       
     } else if (scrapeType === 'city') {
@@ -244,7 +242,6 @@ function AdminPanel() {
         setScrapeError('Please select a city');
         return;
       }
-      locationName = selectedCity;
       requestBody.name = selectedCity;
     }
 

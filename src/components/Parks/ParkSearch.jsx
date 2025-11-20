@@ -1,3 +1,5 @@
+'use client'
+
 // src/components/Parks/ParkSearch.jsx
 // Location search component
 

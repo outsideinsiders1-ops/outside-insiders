@@ -1,3 +1,4 @@
+'use client'
 // src/components/Map/ParkBoundary.jsx
 // Shows park boundary polygon on the map
 

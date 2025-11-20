@@ -1,3 +1,4 @@
+'use client'
 // src/components/Layout/Header.jsx
 // App header component
 

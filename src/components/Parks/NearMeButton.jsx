@@ -1,3 +1,4 @@
+'use client'
 // src/components/Parks/NearMeButton.jsx
 // Near me location button
 
@@ -23,7 +24,7 @@ const NearMeButton = ({ onLocationFound }) => {
           
           setLoading(false)
         },
-        (error) => {
+        () => {
           console.log('Location access denied or unavailable')
           alert('Could not get your location. Please enable location services.')
           setLoading(false)

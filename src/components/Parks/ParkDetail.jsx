@@ -1,3 +1,4 @@
+'use client'
 // src/components/Parks/ParkDetail.jsx
 // Park detail panel component
 
