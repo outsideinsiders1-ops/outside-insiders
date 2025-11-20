@@ -4,11 +4,12 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import './AdminPanel.css';
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// Initialize Supabase client (with fallback for build time)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey)
+  : null
 
 function AdminPanel() {
   // State for active tab
@@ -48,6 +49,12 @@ function AdminPanel() {
 
   // Load all states
   const loadStates = async () => {
+    if (!supabase) {
+      console.error('Supabase client not initialized')
+      setLoadingGeo(false)
+      return
+    }
+    
     setLoadingGeo(true);
     try {
       const { data, error } = await supabase
@@ -70,6 +77,7 @@ function AdminPanel() {
 
   // Load metros for selected state
   const loadMetros = async (stateCode) => {
+    if (!supabase) return
     try {
       const { data, error } = await supabase
         .from('geographic_entities')
@@ -93,6 +101,7 @@ function AdminPanel() {
 
   // Load counties for selected state
   const loadCounties = async (stateCode) => {
+    if (!supabase) return
     try {
       const { data, error } = await supabase
         .from('geographic_entities')
@@ -116,6 +125,7 @@ function AdminPanel() {
 
   // Load cities for selected state
   const loadCities = async (stateCode) => {
+    if (!supabase) return
     try {
       const { data, error } = await supabase
         .from('geographic_entities')
@@ -140,6 +150,8 @@ function AdminPanel() {
   // Get metro details (count of counties and cities)
   const loadMetroDetails = async (metroId, stateCode) => {
     try {
+      if (!supabase) return
+      
       // Count counties in this metro
       const { data: countyData } = await supabase
         .from('geographic_entities')
