@@ -7,6 +7,13 @@
 import { batchInsertOrUpdateParks } from '../../../lib/utils/db-operations.js'
 
 export async function POST(request) {
+  // Set CORS headers
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }
+
   try {
     const formData = await request.formData()
     const file = formData.get('file')
@@ -17,7 +24,18 @@ export async function POST(request) {
       return Response.json({ 
         success: false, 
         error: 'No file provided' 
-      }, { status: 400 })
+      }, { status: 400, headers })
+    }
+    
+    // Check file type
+    const fileName = file.name.toLowerCase()
+    const isShapefile = fileName.endsWith('.shp') || fileName.endsWith('.zip')
+    
+    if (isShapefile) {
+      return Response.json({ 
+        success: false, 
+        error: 'Shapefile support coming soon. Please convert your Shapefile to GeoJSON format first. You can use tools like QGIS, ArcGIS, or online converters like mapshaper.org' 
+      }, { status: 400, headers })
     }
     
     // Read file content
@@ -30,8 +48,8 @@ export async function POST(request) {
     } catch {
       return Response.json({ 
         success: false, 
-        error: 'Invalid JSON file. Please upload a valid GeoJSON file.' 
-      }, { status: 400 })
+        error: 'Invalid JSON file. Please upload a valid GeoJSON file (.geojson or .json with GeoJSON format).' 
+      }, { status: 400, headers })
     }
     
     // Validate GeoJSON structure
@@ -39,7 +57,7 @@ export async function POST(request) {
       return Response.json({ 
         success: false, 
         error: 'Invalid GeoJSON format. File must have "type" and "features" properties.' 
-      }, { status: 400 })
+      }, { status: 400, headers })
     }
     
     // Extract parks from GeoJSON features
@@ -129,7 +147,7 @@ export async function POST(request) {
       return Response.json({ 
         success: false, 
         error: 'No valid parks found in file. Ensure features have name and coordinates.' 
-      }, { status: 400 })
+      }, { status: 400, headers })
     }
     
     // Process parks with intelligent merging and deduplication
@@ -145,14 +163,14 @@ export async function POST(request) {
       errors: results.errors.length > 0 ? results.errors : undefined,
       sourceType,
       sourceName
-    })
+    }, { headers })
     
   } catch (error) {
     console.error('Upload API Error:', error)
     return Response.json({ 
       success: false, 
       error: error.message || 'Unknown error processing file' 
-    }, { status: 500 })
+    }, { status: 500, headers })
   }
 }
 

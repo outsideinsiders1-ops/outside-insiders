@@ -3,6 +3,6 @@
   "/api/sync/route": "app/api/sync/route.js",
   "/api/scrape/route": "app/api/scrape/route.js",
   "/api/upload/route": "app/api/upload/route.js",
-  "/page": "app/page.js",
-  "/admin/page": "app/admin/page.js"
+  "/admin/page": "app/admin/page.js",
+  "/page": "app/page.js"
 }

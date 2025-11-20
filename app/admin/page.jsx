@@ -301,21 +301,36 @@ function AdminPanel() {
         body: formData,
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        // Try to get error message from response
+        let errorMessage = `Upload failed with status ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch {
+          // If response isn't JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        setUploadError(errorMessage)
+        return
+      }
 
-      if (response.ok && data.success) {
-        setUploadResult(data);
-        setUploadFile(null); // Reset file input
+      const data = await response.json()
+
+      if (data.success) {
+        setUploadResult(data)
+        setUploadFile(null) // Reset file input
         // Reset file input element
-        const fileInput = document.querySelector('input[type="file"]');
-        if (fileInput) fileInput.value = '';
+        const fileInput = document.querySelector('input[type="file"]')
+        if (fileInput) fileInput.value = ''
       } else {
-        setUploadError(data.error || 'Upload failed');
+        setUploadError(data.error || 'Upload failed')
       }
     } catch (err) {
-      setUploadError(`Error: ${err.message}`);
+      console.error('Upload error:', err)
+      setUploadError(`Network error: ${err.message}. Please check your connection and try again.`)
     } finally {
-      setUploadLoading(false);
+      setUploadLoading(false)
     }
   };
 
@@ -644,6 +659,11 @@ function AdminPanel() {
                   setUploadFile(file);
                   setUploadError(null);
                   setUploadResult(null);
+                  
+                  // Check if it's a shapefile
+                  if (file && (file.name.toLowerCase().endsWith('.shp') || file.name.toLowerCase().endsWith('.zip'))) {
+                    setUploadError('Shapefile support coming soon. Please convert to GeoJSON first using tools like QGIS, ArcGIS, or mapshaper.org');
+                  }
                 }}
                 disabled={uploadLoading}
               />
@@ -652,6 +672,9 @@ function AdminPanel() {
                   Selected: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(2)} KB)
                 </p>
               )}
+              <p style={{ marginTop: '10px', fontSize: '0.9rem', color: '#666' }}>
+                <strong>Note:</strong> Currently supports GeoJSON files only. For Shapefiles, please convert to GeoJSON first.
+              </p>
             </div>
 
             <div className="form-group">
