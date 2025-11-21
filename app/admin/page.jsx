@@ -308,10 +308,17 @@ function AdminPanel() {
       formData.append('sourceType', uploadSourceType);
       formData.append('sourceName', uploadFile.name);
 
+      // Set a longer timeout for large files (5 minutes)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutes
+
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         // Try to get error message from response
@@ -340,7 +347,11 @@ function AdminPanel() {
       }
     } catch (err) {
       console.error('Upload error:', err)
-      setUploadError(`Network error: ${err.message}. Please check your connection and try again.`)
+      if (err.name === 'AbortError') {
+        setUploadError('Upload timed out after 5 minutes. The file may be too large. Please try splitting it into smaller files or contact support.')
+      } else {
+        setUploadError(`Network error: ${err.message}. Please check your connection and try again.`)
+      }
     } finally {
       setUploadLoading(false)
     }
@@ -643,7 +654,7 @@ function AdminPanel() {
           <div className="section">
             <h2>File Upload</h2>
             <p className="section-description">
-              Upload GeoJSON files. Priority: 80 (protected from scrapes). Files will be intelligently merged with existing data.
+              Upload GeoJSON or Shapefile files. Priority: 80 (protected from scrapes). Files will be intelligently merged with existing data. Large files may take several minutes to process.
             </p>
 
             <div className="form-group">
@@ -662,30 +673,30 @@ function AdminPanel() {
             </div>
 
             <div className="form-group">
-              <label>2️⃣ Select GeoJSON File:</label>
+              <label>2️⃣ Select File (GeoJSON, Shapefile, or ZIP):</label>
               <input
                 type="file"
-                accept=".geojson,.json"
+                accept=".geojson,.json,.shp,.zip"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   setUploadFile(file);
                   setUploadError(null);
                   setUploadResult(null);
-                  
-                  // Check if it's a shapefile
-                  if (file && (file.name.toLowerCase().endsWith('.shp') || file.name.toLowerCase().endsWith('.zip'))) {
-                    setUploadError('Shapefile support coming soon. Please convert to GeoJSON first using tools like QGIS, ArcGIS, or mapshaper.org');
-                  }
                 }}
                 disabled={uploadLoading}
               />
               {uploadFile && (
                 <p style={{ marginTop: '10px', color: '#666' }}>
-                  Selected: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(2)} KB)
+                  Selected: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                  {uploadFile.size > 50 * 1024 * 1024 && (
+                    <span style={{ color: '#ff6b6b', marginLeft: '10px' }}>
+                      ⚠️ Large file - processing may take several minutes
+                    </span>
+                  )}
                 </p>
               )}
               <p style={{ marginTop: '10px', fontSize: '0.9rem', color: '#666' }}>
-                <strong>Note:</strong> Currently supports GeoJSON files only. For Shapefiles, please convert to GeoJSON first.
+                <strong>Supported formats:</strong> GeoJSON (.geojson, .json), Shapefile (.shp), or ZIP archives containing shapefiles (.zip)
               </p>
             </div>
 

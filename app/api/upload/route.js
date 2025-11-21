@@ -8,6 +8,10 @@ import { batchInsertOrUpdateParks } from '../../../lib/utils/db-operations.js'
 import { parseShapefile } from '../../../lib/utils/shapefile-parser.js'
 import { simplifyBoundary } from '../../../lib/utils/geometry-simplify.js'
 
+// Increase timeout for large file processing (5 minutes)
+// Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
+export const maxDuration = 300
+
 export async function POST(request) {
   // Set CORS headers
   const headers = {
@@ -70,7 +74,15 @@ export async function POST(request) {
     const parks = []
     const features = geojson.features || []
     
-    for (const feature of features) {
+    console.log(`Processing ${features.length} features from ${sourceName}`)
+    
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i]
+      
+      // Log progress for large files (every 100 features)
+      if (features.length > 100 && i % 100 === 0) {
+        console.log(`Processing feature ${i + 1} of ${features.length}...`)
+      }
       if (!feature.geometry || !feature.properties) continue
       
       // Extract coordinates from geometry
