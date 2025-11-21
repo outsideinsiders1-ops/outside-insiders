@@ -123,12 +123,14 @@ export async function POST(request) {
       // Extract coordinates from geometry
       let latitude = null
       let longitude = null
-      let boundary = null
+      let geometry = null
       
       if (feature.geometry.type === 'Point' && feature.geometry.coordinates) {
         // Point geometry: [longitude, latitude]
         longitude = feature.geometry.coordinates[0]
         latitude = feature.geometry.coordinates[1]
+        // For points, store as GeoJSON for geometry column
+        geometry = feature.geometry
       } else if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
         // Polygon geometry: calculate centroid for lat/lng
         const coords = feature.geometry.coordinates
@@ -158,10 +160,10 @@ export async function POST(request) {
           latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
         }
         
-        // Simplify boundary geometry to reduce file size (~500 feet accuracy)
+        // Simplify geometry to reduce file size (~500 feet accuracy)
         // This significantly reduces point count while maintaining visual accuracy
         const simplifiedGeometry = simplifyBoundary(feature.geometry, 152) // 152 meters = ~500 feet
-        boundary = simplifiedGeometry
+        geometry = simplifiedGeometry
       }
       
       // Extract properties and map to our schema
@@ -179,11 +181,12 @@ export async function POST(request) {
       }
       
       // Build park object with mapped properties
+      // Store geometry as GeoJSON object - Supabase will convert to geography type
       const park = {
         ...mappedProps,
         latitude,
         longitude,
-        boundary: boundary ? JSON.stringify(boundary) : null,
+        geometry: geometry || null, // Store as GeoJSON object for PostGIS geography column
       }
       
       // Validate required fields

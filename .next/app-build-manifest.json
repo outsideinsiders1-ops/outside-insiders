@@ -7,6 +7,13 @@
       "static/chunks/main-app-bdb7cdcf0fbe007a.js",
       "static/chunks/app/_not-found/page-9bf487df97858798.js"
     ],
+    "/api/scrape/route": [
+      "static/chunks/webpack-9f87ac4847fc46ba.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-cf2e1d3491ac955b.js",
+      "static/chunks/main-app-bdb7cdcf0fbe007a.js",
+      "static/chunks/app/api/scrape/route-b4dabc027a8680f0.js"
+    ],
     "/layout": [
       "static/chunks/webpack-9f87ac4847fc46ba.js",
       "static/chunks/4bd1b696-c023c6e3521b1417.js",
@@ -14,13 +21,6 @@
       "static/chunks/main-app-bdb7cdcf0fbe007a.js",
       "static/css/c399cd498547f8e4.css",
       "static/chunks/app/layout-b132a096b69786d8.js"
-    ],
-    "/api/scrape/route": [
-      "static/chunks/webpack-9f87ac4847fc46ba.js",
-      "static/chunks/4bd1b696-c023c6e3521b1417.js",
-      "static/chunks/255-cf2e1d3491ac955b.js",
-      "static/chunks/main-app-bdb7cdcf0fbe007a.js",
-      "static/chunks/app/api/scrape/route-b4dabc027a8680f0.js"
     ],
     "/api/sync/route": [
       "static/chunks/webpack-9f87ac4847fc46ba.js",
