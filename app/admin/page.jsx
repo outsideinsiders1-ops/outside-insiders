@@ -43,6 +43,14 @@ function AdminPanel() {
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
 
+  // API Sync state
+  const [syncApiUrl, setSyncApiUrl] = useState('');
+  const [syncSourceType, setSyncSourceType] = useState('NPS');
+  const [syncApiKey, setSyncApiKey] = useState('');
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+  const [syncError, setSyncError] = useState(null);
+
   // ==================== LOAD GEOGRAPHIC DATA ====================
   useEffect(() => {
     loadStates();
@@ -427,6 +435,89 @@ function AdminPanel() {
     }
   };
 
+  // ==================== API SYNC HANDLER ====================
+  const handleApiSync = async () => {
+    if (!syncApiUrl.trim()) {
+      setSyncError('Please enter an API URL');
+      return;
+    }
+
+    if (!syncSourceType) {
+      setSyncError('Please select a source type');
+      return;
+    }
+
+    setSyncLoading(true);
+    setSyncError(null);
+    setSyncResult(null);
+
+    try {
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiUrl: syncApiUrl.trim(),
+          sourceType: syncSourceType,
+          apiKey: syncApiKey.trim() || undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle different error types
+        let errorMessage = data.error || `Sync failed with status ${response.status}`;
+        
+        if (data.details) {
+          errorMessage += `: ${data.details}`;
+        }
+        
+        if (response.status === 400) {
+          // Validation error - show helpful message
+          if (data.example) {
+            errorMessage += `\n\nExample: ${JSON.stringify(data.example, null, 2)}`;
+          }
+        } else if (response.status === 501) {
+          // Not implemented yet
+          errorMessage = 'API Sync is not yet implemented. This endpoint is coming soon.';
+          if (data.note) {
+            errorMessage += `\n\n${data.note}`;
+          }
+          if (data.nextSteps) {
+            errorMessage += `\n\nPlanned features:\n${data.nextSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
+          }
+        } else if (response.status === 500) {
+          // Server error
+          errorMessage = `Server error: ${data.message || errorMessage}`;
+          if (data.details && process.env.NODE_ENV === 'development') {
+            errorMessage += `\n\nDetails: ${data.details}`;
+          }
+        }
+        
+        setSyncError(errorMessage);
+        return;
+      }
+
+      if (data.success) {
+        setSyncResult(data);
+      } else {
+        setSyncError(data.error || 'Sync failed');
+      }
+    } catch (err) {
+      console.error('API Sync error:', err);
+      
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setSyncError('Network error: Could not connect to server. Please check your connection and try again.');
+      } else {
+        setSyncError(`Error: ${err.message}. Please try again.`);
+      }
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
   // ==================== RENDER ====================
   return (
     <div className="admin-panel">
@@ -708,12 +799,126 @@ function AdminPanel() {
               Connect to official park APIs. Priority: 90-100 (highest protection)
             </p>
 
-            <div className="empty-state">
-              <p>API integration coming soon!</p>
-              <ul style={{ textAlign: 'left', display: 'inline-block', marginTop: '10px' }}>
-                <li>NPS API (Priority: 100)</li>
-                <li>Recreation.gov API (Priority: 95)</li>
-                <li>State Park APIs (Priority: 90)</li>
+            <div className="form-group">
+              <label>1️⃣ Select Source Type:</label>
+              <select 
+                value={syncSourceType} 
+                onChange={(e) => setSyncSourceType(e.target.value)}
+                disabled={syncLoading}
+              >
+                <option value="NPS">NPS (National Park Service) - Priority: 100</option>
+                <option value="Recreation.gov">Recreation.gov - Priority: 95</option>
+                <option value="State Agency">State Agency API - Priority: 90</option>
+                <option value="Federal Agency">Federal Agency API - Priority: 90</option>
+                <option value="County Agency">County Agency API - Priority: 85</option>
+                <option value="City Agency">City Agency API - Priority: 85</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>2️⃣ Enter API URL:</label>
+              <input
+                type="url"
+                value={syncApiUrl}
+                onChange={(e) => {
+                  setSyncApiUrl(e.target.value);
+                  setSyncError(null);
+                }}
+                placeholder="https://api.nps.gov/api/v1/parks"
+                disabled={syncLoading}
+                style={{ width: '100%', padding: '8px', marginTop: '5px', fontFamily: 'monospace' }}
+              />
+              <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                <strong>Examples:</strong>
+                <br />• NPS: <code>https://api.nps.gov/api/v1/parks</code>
+                <br />• Recreation.gov: <code>https://ridb.recreation.gov/api/v1/facilities</code>
+                <br />• State APIs: Check your state's park agency website
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>3️⃣ API Key (if required):</label>
+              <input
+                type="password"
+                value={syncApiKey}
+                onChange={(e) => setSyncApiKey(e.target.value)}
+                placeholder="Enter API key if required by the API"
+                disabled={syncLoading}
+                style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+              />
+              <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                <strong>Note:</strong> Some APIs require authentication. Enter your API key here if needed.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <button
+                onClick={handleApiSync}
+                disabled={!syncApiUrl.trim() || !syncSourceType || syncLoading}
+                className="primary-button"
+              >
+                {syncLoading ? '⏳ Syncing...' : '🔌 Sync API'}
+              </button>
+            </div>
+
+            {syncError && (
+              <div className="error-message" style={{ marginTop: '20px', padding: '15px', background: '#fee', borderRadius: '8px', whiteSpace: 'pre-wrap' }}>
+                <strong>❌ Error:</strong>
+                <div style={{ marginTop: '10px', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                  {syncError}
+                </div>
+              </div>
+            )}
+
+            {syncResult && (
+              <div className="success-message" style={{ marginTop: '20px', padding: '20px', background: '#f0f7ed', borderRadius: '8px' }}>
+                {syncResult.success ? (
+                  <>
+                    <h3 style={{ marginTop: 0 }}>✅ Sync Complete!</h3>
+                    <ul style={{ textAlign: 'left', display: 'inline-block' }}>
+                      {syncResult.parksFound !== undefined && (
+                        <li><strong>Parks Found:</strong> {syncResult.parksFound}</li>
+                      )}
+                      {syncResult.parksAdded !== undefined && (
+                        <li><strong>Parks Added:</strong> {syncResult.parksAdded}</li>
+                      )}
+                      {syncResult.parksUpdated !== undefined && (
+                        <li><strong>Parks Updated:</strong> {syncResult.parksUpdated}</li>
+                      )}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <h3 style={{ marginTop: 0 }}>ℹ️ API Sync Status</h3>
+                    <p>{syncResult.message || 'API sync endpoint received your request'}</p>
+                    {syncResult.received && (
+                      <div style={{ marginTop: '10px', padding: '10px', background: '#fff', borderRadius: '5px' }}>
+                        <strong>Received:</strong>
+                        <ul style={{ textAlign: 'left', marginTop: '5px' }}>
+                          <li>URL: {syncResult.received.apiUrl}</li>
+                          <li>Source Type: {syncResult.received.sourceType}</li>
+                          <li>Has API Key: {syncResult.received.hasApiKey ? 'Yes' : 'No'}</li>
+                        </ul>
+                      </div>
+                    )}
+                    {syncResult.note && (
+                      <p style={{ marginTop: '10px', fontStyle: 'italic', color: '#666' }}>
+                        {syncResult.note}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px' }}>
+              <h4>📋 API Sync Features (Coming Soon):</h4>
+              <ul style={{ lineHeight: '1.8', textAlign: 'left' }}>
+                <li><strong>LLM-Powered Intelligence:</strong> Automatically analyzes API structure and suggests optimal endpoints</li>
+                <li><strong>Smart Field Mapping:</strong> Maps API response fields to park schema automatically</li>
+                <li><strong>Deduplication:</strong> Intelligently merges with existing park data</li>
+                <li><strong>Priority Protection:</strong> API data has highest priority (90-100) and won't be overwritten</li>
+                <li><strong>Error Recovery:</strong> Handles API errors gracefully and provides detailed feedback</li>
               </ul>
             </div>
           </div>
