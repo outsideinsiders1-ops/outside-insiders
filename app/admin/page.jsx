@@ -51,6 +51,19 @@ function AdminPanel() {
   const [syncResult, setSyncResult] = useState(null);
   const [syncError, setSyncError] = useState(null);
 
+  // Data Quality state
+  const [qualityLoading, setQualityLoading] = useState(false);
+  const [qualityAnalysis, setQualityAnalysis] = useState(null);
+  const [qualityError, setQualityError] = useState(null);
+  const [qualityFilters, setQualityFilters] = useState({
+    state: '',
+    agency: '',
+    dataSource: ''
+  });
+  const [filteredParks, setFilteredParks] = useState([]);
+  const [selectedParks, setSelectedParks] = useState(new Set());
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   // ==================== LOAD GEOGRAPHIC DATA ====================
   useEffect(() => {
     loadStates();
@@ -526,6 +539,150 @@ function AdminPanel() {
     }
   };
 
+  // ==================== DATA QUALITY HANDLERS ====================
+  const loadQualityAnalysis = async () => {
+    setQualityLoading(true);
+    setQualityError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (qualityFilters.state) params.append('state', qualityFilters.state);
+      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
+      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
+
+      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setQualityError(data.error || 'Failed to load quality analysis');
+        return;
+      }
+
+      if (data.success) {
+        setQualityAnalysis(data.analysis);
+      } else {
+        setQualityError(data.error || 'Failed to load quality analysis');
+      }
+    } catch (err) {
+      console.error('Quality analysis error:', err);
+      setQualityError(`Error: ${err.message}`);
+    } finally {
+      setQualityLoading(false);
+    }
+  };
+
+  const loadFilteredParks = async (filterCriteria) => {
+    setQualityLoading(true);
+    setQualityError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (qualityFilters.state) params.append('state', qualityFilters.state);
+      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
+      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
+      params.append('action', 'filter');
+
+      if (filterCriteria.nameKeywords) {
+        params.append('nameKeywords', filterCriteria.nameKeywords.join(','));
+      }
+      if (filterCriteria.maxAcres !== undefined) {
+        params.append('maxAcres', filterCriteria.maxAcres);
+      }
+      if (filterCriteria.minAcres !== undefined) {
+        params.append('minAcres', filterCriteria.minAcres);
+      }
+      if (filterCriteria.missingFields) {
+        params.append('missingFields', filterCriteria.missingFields.join(','));
+      }
+
+      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setQualityError(data.error || 'Failed to load filtered parks');
+        return;
+      }
+
+      if (data.success) {
+        setFilteredParks(data.filteredParks || []);
+        setSelectedParks(new Set()); // Clear selection
+      } else {
+        setQualityError(data.error || 'Failed to load filtered parks');
+      }
+    } catch (err) {
+      console.error('Filter parks error:', err);
+      setQualityError(`Error: ${err.message}`);
+    } finally {
+      setQualityLoading(false);
+    }
+  };
+
+  const handleDeleteParks = async () => {
+    if (selectedParks.size === 0) {
+      alert('Please select parks to delete');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedParks.size} park(s)? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeleteLoading(true);
+
+    try {
+      const response = await fetch('/api/admin/data-quality', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          parkIds: Array.from(selectedParks)
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setQualityError(data.error || 'Failed to delete parks');
+        return;
+      }
+
+      if (data.success) {
+        alert(`Successfully deleted ${data.deleted} park(s)`);
+        setSelectedParks(new Set());
+        // Reload analysis
+        loadQualityAnalysis();
+        // Reload filtered parks if any
+        if (filteredParks.length > 0) {
+          loadFilteredParks({});
+        }
+      }
+    } catch (err) {
+      console.error('Delete parks error:', err);
+      setQualityError(`Error: ${err.message}`);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const toggleParkSelection = (parkId) => {
+    const newSelection = new Set(selectedParks);
+    if (newSelection.has(parkId)) {
+      newSelection.delete(parkId);
+    } else {
+      newSelection.add(parkId);
+    }
+    setSelectedParks(newSelection);
+  };
+
+  const selectAllParks = () => {
+    if (selectedParks.size === filteredParks.length) {
+      setSelectedParks(new Set());
+    } else {
+      setSelectedParks(new Set(filteredParks.map(p => p.id)));
+    }
+  };
+
   // ==================== RENDER ====================
   return (
     <div className="admin-panel">
@@ -553,6 +710,17 @@ function AdminPanel() {
           onClick={() => setActiveTab('upload')}
         >
           📁 File Upload
+        </button>
+        <button
+          className={`tab ${activeTab === 'quality' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('quality');
+            if (!qualityAnalysis) {
+              loadQualityAnalysis();
+            }
+          }}
+        >
+          🔍 Data Quality
         </button>
       </div>
 
@@ -1033,6 +1201,335 @@ function AdminPanel() {
                         <li key={idx}>{err.park}: {err.error}</li>
                       ))}
                     </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ==================== DATA QUALITY TAB ==================== */}
+        {activeTab === 'quality' && (
+          <div className="section">
+            <h2>🔍 Data Quality & Cleanup</h2>
+            <p className="section-description">
+              Review data quality metrics, identify issues, and clean up your database
+            </p>
+
+            {/* Filters */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+              <div className="form-group">
+                <label>Filter by State:</label>
+                <select
+                  value={qualityFilters.state}
+                  onChange={(e) => {
+                    setQualityFilters({ ...qualityFilters, state: e.target.value });
+                  }}
+                  disabled={qualityLoading}
+                >
+                  <option value="">All States</option>
+                  {states.map(state => (
+                    <option key={state.id} value={state.name}>{state.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Filter by Agency:</label>
+                <input
+                  type="text"
+                  value={qualityFilters.agency}
+                  onChange={(e) => setQualityFilters({ ...qualityFilters, agency: e.target.value })}
+                  placeholder="e.g., NPS, BLM"
+                  disabled={qualityLoading}
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Filter by Data Source:</label>
+                <input
+                  type="text"
+                  value={qualityFilters.dataSource}
+                  onChange={(e) => setQualityFilters({ ...qualityFilters, dataSource: e.target.value })}
+                  placeholder="e.g., PAD-US, ParkServe"
+                  disabled={qualityLoading}
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+
+              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button
+                  onClick={loadQualityAnalysis}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                >
+                  {qualityLoading ? '⏳ Loading...' : '📊 Analyze'}
+                </button>
+              </div>
+            </div>
+
+            {qualityError && (
+              <div className="error-message" style={{ marginBottom: '20px' }}>
+                ❌ {qualityError}
+              </div>
+            )}
+
+            {/* Quality Metrics */}
+            {qualityAnalysis && (
+              <div style={{ marginBottom: '30px' }}>
+                <h3>📊 Quality Metrics</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginTop: '15px' }}>
+                  <div style={{ padding: '15px', background: '#f0f7ed', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.total}</div>
+                    <div>Total Parks</div>
+                  </div>
+                  <div style={{ padding: '15px', background: '#e8f4f8', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.averageQualityScore.toFixed(1)}</div>
+                    <div>Avg Quality Score</div>
+                  </div>
+                  <div style={{ padding: '15px', background: '#fff4e6', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.likelyNonParks.length}</div>
+                    <div>Likely Non-Parks</div>
+                  </div>
+                  <div style={{ padding: '15px', background: '#fee', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.issues.length}</div>
+                    <div>Parks with Issues</div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
+                  <h4>Field Completeness</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                    <div>📍 Coordinates: {qualityAnalysis.percentages.withCoordinates}%</div>
+                    <div>📝 Description: {qualityAnalysis.percentages.withDescription}%</div>
+                    <div>🌐 Website: {qualityAnalysis.percentages.withWebsite}%</div>
+                    <div>📞 Phone: {qualityAnalysis.percentages.withPhone}%</div>
+                    <div>🏠 Address: {qualityAnalysis.percentages.withAddress}%</div>
+                    <div>🗺️ Boundary: {qualityAnalysis.percentages.withGeometry}%</div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
+                  <h4>Quality Distribution</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '10px' }}>
+                    <div>✅ Excellent (80-100): {qualityAnalysis.qualityDistribution.excellent}</div>
+                    <div>👍 Good (60-79): {qualityAnalysis.qualityDistribution.good}</div>
+                    <div>⚠️ Fair (40-59): {qualityAnalysis.qualityDistribution.fair}</div>
+                    <div>❌ Poor (0-39): {qualityAnalysis.qualityDistribution.poor}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Filters */}
+            <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px' }}>
+              <h3>🔎 Quick Filters</h3>
+              <p>Find parks that need attention:</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '15px' }}>
+                <button
+                  onClick={() => loadFilteredParks({ nameKeywords: ['office', 'facility', 'headquarters', 'admin'] })}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  🏢 Find Offices/Facilities
+                </button>
+                <button
+                  onClick={() => loadFilteredParks({ maxAcres: 0.1 })}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  📏 Very Small (&lt; 0.1 acres)
+                </button>
+                <button
+                  onClick={() => loadFilteredParks({ missingFields: ['description', 'website', 'phone'] })}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  📋 Missing Info
+                </button>
+                <button
+                  onClick={() => loadFilteredParks({ missingFields: ['coordinates'] })}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  📍 Missing Coordinates
+                </button>
+                <button
+                  onClick={() => loadFilteredParks({ missingFields: ['geometry'] })}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                  style={{ fontSize: '0.9rem' }}
+                >
+                  🗺️ Missing Boundaries
+                </button>
+                {qualityAnalysis && qualityAnalysis.likelyNonParks.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const nonParkIds = qualityAnalysis.likelyNonParks.map(p => p.id);
+                      setFilteredParks(qualityAnalysis.likelyNonParks.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        state: p.state,
+                        agency: p.agency,
+                        acres: p.acres,
+                        qualityScore: 0
+                      })));
+                      setSelectedParks(new Set(nonParkIds));
+                    }}
+                    disabled={qualityLoading}
+                    className="primary-button"
+                    style={{ fontSize: '0.9rem', background: '#ff6b6b' }}
+                  >
+                    🚫 Likely Non-Parks ({qualityAnalysis.likelyNonParks.length})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Filtered Parks List */}
+            {filteredParks.length > 0 && (
+              <div style={{ marginTop: '30px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <h3>📋 Filtered Parks ({filteredParks.length})</h3>
+                  <div>
+                    <button
+                      onClick={selectAllParks}
+                      className="primary-button"
+                      style={{ marginRight: '10px', fontSize: '0.9rem' }}
+                    >
+                      {selectedParks.size === filteredParks.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    {selectedParks.size > 0 && (
+                      <button
+                        onClick={handleDeleteParks}
+                        disabled={deleteLoading}
+                        className="primary-button"
+                        style={{ background: '#ff6b6b', fontSize: '0.9rem' }}
+                      >
+                        {deleteLoading ? '⏳ Deleting...' : `🗑️ Delete Selected (${selectedParks.size})`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ maxHeight: '500px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0 }}>
+                      <tr>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedParks.size === filteredParks.length && filteredParks.length > 0}
+                            onChange={selectAllParks}
+                          />
+                        </th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Name</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>State</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Agency</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Acres</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Quality</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredParks.map(park => (
+                        <tr key={park.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '10px' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedParks.has(park.id)}
+                              onChange={() => toggleParkSelection(park.id)}
+                            />
+                          </td>
+                          <td style={{ padding: '10px' }}>{park.name}</td>
+                          <td style={{ padding: '10px' }}>{park.state}</td>
+                          <td style={{ padding: '10px' }}>{park.agency}</td>
+                          <td style={{ padding: '10px' }}>{park.acres ? park.acres.toFixed(2) : 'N/A'}</td>
+                          <td style={{ padding: '10px' }}>
+                            <span style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.85rem',
+                              background: park.qualityScore >= 80 ? '#d4edda' :
+                                         park.qualityScore >= 60 ? '#d1ecf1' :
+                                         park.qualityScore >= 40 ? '#fff3cd' : '#f8d7da'
+                            }}>
+                              {park.qualityScore}/100
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Likely Non-Parks List */}
+            {qualityAnalysis && qualityAnalysis.likelyNonParks.length > 0 && filteredParks.length === 0 && (
+              <div style={{ marginTop: '30px' }}>
+                <h3>🚫 Likely Non-Parks ({qualityAnalysis.likelyNonParks.length})</h3>
+                <p style={{ color: '#666', marginBottom: '15px' }}>
+                  These parks may be offices, facilities, or other non-park locations
+                </p>
+                <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0 }}>
+                      <tr>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedParks.size === qualityAnalysis.likelyNonParks.length && qualityAnalysis.likelyNonParks.length > 0}
+                            onChange={() => {
+                              if (selectedParks.size === qualityAnalysis.likelyNonParks.length) {
+                                setSelectedParks(new Set());
+                              } else {
+                                setSelectedParks(new Set(qualityAnalysis.likelyNonParks.map(p => p.id)));
+                              }
+                            }}
+                          />
+                        </th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Name</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>State</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Agency</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Reason</th>
+                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Acres</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {qualityAnalysis.likelyNonParks.map(park => (
+                        <tr key={park.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '10px' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedParks.has(park.id)}
+                              onChange={() => toggleParkSelection(park.id)}
+                            />
+                          </td>
+                          <td style={{ padding: '10px' }}>{park.name}</td>
+                          <td style={{ padding: '10px' }}>{park.state}</td>
+                          <td style={{ padding: '10px' }}>{park.agency}</td>
+                          <td style={{ padding: '10px', fontSize: '0.9rem', color: '#666' }}>{park.reason}</td>
+                          <td style={{ padding: '10px' }}>{park.acres ? park.acres.toFixed(2) : 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {selectedParks.size > 0 && (
+                  <div style={{ marginTop: '15px' }}>
+                    <button
+                      onClick={handleDeleteParks}
+                      disabled={deleteLoading}
+                      className="primary-button"
+                      style={{ background: '#ff6b6b' }}
+                    >
+                      {deleteLoading ? '⏳ Deleting...' : `🗑️ Delete Selected (${selectedParks.size})`}
+                    </button>
                   </div>
                 )}
               </div>

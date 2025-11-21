@@ -1,7 +1,7 @@
 'use client'
 
 // src/components/Map/MapView.jsx
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -18,12 +18,73 @@ function MapUpdater({ center, zoom }) {
   return null
 }
 
+// Check WebGL support
+function checkWebGLSupport() {
+  try {
+    const canvas = document.createElement('canvas')
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
+    return !!gl
+  } catch {
+    return false
+  }
+}
+
 const MapView = ({ center, zoom, children }) => {
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  const [useMapbox, setUseMapbox] = useState(true)
+  const [mapboxError, setMapboxError] = useState(false)
+
+  // Validate Mapbox token on mount
+  useEffect(() => {
+    // Check WebGL support
+    const hasWebGL = checkWebGLSupport()
+    if (!hasWebGL) {
+      console.warn('WebGL not supported - falling back to OpenStreetMap')
+      setUseMapbox(false)
+      return
+    }
+
+    // Validate token
+    if (!MAPBOX_TOKEN) {
+      console.warn('Mapbox token not found - using OpenStreetMap fallback')
+      setUseMapbox(false)
+      return
+    }
+
+    // Check token format (Mapbox tokens start with 'pk.')
+    if (!MAPBOX_TOKEN.startsWith('pk.')) {
+      console.warn('Invalid Mapbox token format - should start with "pk." - using OpenStreetMap fallback')
+      setUseMapbox(false)
+      return
+    }
+
+    console.log('Mapbox token validated, WebGL supported - using Mapbox tiles')
+  }, [MAPBOX_TOKEN])
 
   // Ensure we have valid center and zoom
   const validCenter = (center && Array.isArray(center) && center.length === 2) ? center : [35.5, -83.0]
   const validZoom = (zoom !== undefined && zoom !== null) ? zoom : 7
+
+  // Determine which tile source to use
+  const shouldUseMapbox = useMapbox && MAPBOX_TOKEN && !mapboxError
+  const tileUrl = shouldUseMapbox
+    ? `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
+    : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+
+  const handleTileError = (error) => {
+    console.error('Tile loading error:', error)
+    if (shouldUseMapbox && !mapboxError) {
+      console.warn('Mapbox tile failed - switching to OpenStreetMap')
+      setMapboxError(true)
+      setUseMapbox(false)
+    }
+  }
+
+  const handleTileLoad = () => {
+    if (shouldUseMapbox) {
+      console.log('Mapbox tile loaded successfully')
+    }
+  }
 
   return (
     <MapContainer
@@ -34,21 +95,17 @@ const MapView = ({ center, zoom, children }) => {
       key="main-map"
     >
       <TileLayer
-        attribution={MAPBOX_TOKEN 
+        attribution={shouldUseMapbox
           ? '© <a href="https://www.mapbox.com/">Mapbox</a>'
           : '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }
-        url={MAPBOX_TOKEN 
-          ? `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
-          : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        }
+        url={tileUrl}
         tileSize={256}
         zoomOffset={0}
         errorTileUrl="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
         eventHandlers={{
-          tileerror: (error) => {
-            console.error('Tile loading error:', error)
-          }
+          tileerror: handleTileError,
+          tileload: handleTileLoad
         }}
       />
       <MapUpdater center={validCenter} zoom={validZoom} />
