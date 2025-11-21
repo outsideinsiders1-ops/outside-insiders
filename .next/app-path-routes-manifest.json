@@ -2,7 +2,7 @@
   "/_not-found/page": "/_not-found",
   "/api/scrape/route": "/api/scrape",
   "/api/sync/route": "/api/sync",
-  "/page": "/",
+  "/api/upload/route": "/api/upload",
   "/admin/page": "/admin",
-  "/api/upload/route": "/api/upload"
+  "/page": "/"
 }

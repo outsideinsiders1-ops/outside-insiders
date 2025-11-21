@@ -8,6 +8,9 @@ import { batchInsertOrUpdateParks } from '../../../lib/utils/db-operations.js'
 import { parseShapefile } from '../../../lib/utils/shapefile-parser.js'
 import { simplifyBoundary } from '../../../lib/utils/geometry-simplify.js'
 import { mapPropertiesToParkSchema, logUnmappedProperties } from '../../../lib/utils/field-mapper.js'
+import { geojsonToWKT, validateGeometry as validateWKT } from '../../../lib/utils/geometry-wkt.js'
+import { validateGeometry, fixGeometry } from '../../../lib/utils/geometry-validator.js'
+import { normalizeParkName } from '../../../lib/utils/db-operations.js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
@@ -105,9 +108,9 @@ export async function POST(request) {
       }, { status: 400, headers })
     }
     
-    // Extract parks from GeoJSON features
-    const parks = []
+    // Step 1: Process all features and extract park data
     const features = geojson.features || []
+    const rawParks = []
     
     console.log(`Processing ${features.length} features from ${sourceName}`)
     
@@ -180,25 +183,36 @@ export async function POST(request) {
         logUnmappedProperties(props)
       }
       
-      // Build park object with mapped properties
-      // Store geometry for PostGIS geography type
-      // PostGIS geography expects GeoJSON in WGS84 (SRID 4326) format
+      // Validate and fix geometry
       let geometryValue = null
       if (geometry) {
         try {
-          // Ensure geometry is valid GeoJSON
-          if (geometry.type && geometry.coordinates) {
-            // For PostGIS geography, Supabase accepts GeoJSON object directly
-            // But we need to ensure it's valid - check for empty coordinates
-            const hasValidCoordinates = Array.isArray(geometry.coordinates) && 
-              geometry.coordinates.length > 0
-            
-            if (hasValidCoordinates) {
-              // Store as GeoJSON object - Supabase will convert to geography
-              // If this fails, we'll skip geometry for this park
-              geometryValue = geometry
+          // Validate geometry structure
+          const validation = validateGeometry(geometry)
+          if (!validation.valid) {
+            console.warn(`Park ${mappedProps.name} has invalid geometry: ${validation.error}`)
+            // Try to fix common issues
+            const fixed = fixGeometry(geometry)
+            const fixedValidation = validateGeometry(fixed)
+            if (fixedValidation.valid) {
+              geometry = fixed
+              console.log(`Fixed geometry for ${mappedProps.name}`)
             } else {
-              console.warn(`Park ${mappedProps.name} has invalid geometry coordinates`)
+              console.warn(`Could not fix geometry for ${mappedProps.name}, skipping geometry`)
+              geometry = null
+            }
+          }
+          
+          // Convert to WKT format for PostGIS geography column
+          if (geometry) {
+            const wktValidation = validateWKT(geometry)
+            if (wktValidation.valid) {
+              geometryValue = geojsonToWKT(geometry, 4326) // SRID 4326 (WGS84)
+              if (!geometryValue) {
+                console.warn(`Failed to convert geometry to WKT for ${mappedProps.name}`)
+              }
+            } else {
+              console.warn(`Geometry validation failed for ${mappedProps.name}: ${wktValidation.error}`)
             }
           }
         } catch (err) {
@@ -207,11 +221,19 @@ export async function POST(request) {
         }
       }
       
+      // Get area/acres for grouping (keep largest parcel)
+      const acres = mappedProps.acres || 
+        (props.GIS_Acres ? parseFloat(props.GIS_Acres) : null) ||
+        (props.acres ? parseFloat(props.acres) : null) ||
+        (props.AREA ? parseFloat(props.AREA) : null) ||
+        0
+      
       const park = {
         ...mappedProps,
         latitude,
         longitude,
-        // Only include geometry if it's valid - PostGIS will reject invalid geometries
+        acres,
+        // Store geometry as WKT string for PostGIS geography column
         ...(geometryValue && { geometry: geometryValue }),
       }
       
@@ -221,13 +243,43 @@ export async function POST(request) {
         continue
       }
       
-      if (!park.latitude || !park.longitude) {
-        console.warn('Skipping feature with no coordinates:', park.name)
+      // CRITICAL: Parks must have coordinates to display on map
+      if (!park.latitude || !park.longitude || 
+          isNaN(park.latitude) || isNaN(park.longitude) ||
+          park.latitude < -90 || park.latitude > 90 ||
+          park.longitude < -180 || park.longitude > 180) {
+        console.warn(`Skipping ${park.name}: Invalid coordinates (${park.latitude}, ${park.longitude})`)
         continue
       }
       
-      parks.push(park)
+      rawParks.push(park)
     }
+    
+    // Step 2: Group and deduplicate parks (keep largest parcel per park)
+    console.log(`Grouping ${rawParks.length} parks to remove duplicates...`)
+    const parksByKey = new Map()
+    
+    for (const park of rawParks) {
+      // Create key: normalized name + state
+      const normalizedName = normalizeParkName(park.name)
+      const key = `${normalizedName}_${park.state || 'UNKNOWN'}`
+      
+      const existing = parksByKey.get(key)
+      
+      if (!existing) {
+        // First occurrence - keep it
+        parksByKey.set(key, park)
+      } else {
+        // Duplicate found - keep the one with larger area
+        if (park.acres > (existing.acres || 0)) {
+          parksByKey.set(key, park)
+          console.log(`Replaced ${park.name} (${existing.acres || 0} acres) with larger version (${park.acres} acres)`)
+        }
+      }
+    }
+    
+    const parks = Array.from(parksByKey.values())
+    console.log(`After grouping: ${parks.length} unique parks (removed ${rawParks.length - parks.length} duplicates)`)
     
     if (parks.length === 0) {
       return Response.json({ 

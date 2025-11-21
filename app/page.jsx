@@ -36,7 +36,7 @@ export default function HomePage() {
   const [selectedPark, setSelectedPark] = useState(null)
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [parkBoundary, setParkBoundary] = useState(null)
-  const [showBoundary, setShowBoundary] = useState(true)
+  // Boundary auto-shows when park is selected (no toggle state needed)
 
   // Handle location found from search or near me
   const handleLocationFound = useCallback((location) => {
@@ -51,6 +51,7 @@ export default function HomePage() {
     setSelectedPark(park)
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(config.map.detailZoom)
+    // Boundary will auto-load and display via ParkDetail component
   }, [])
 
   // Handle park detail close
@@ -60,10 +61,9 @@ export default function HomePage() {
     setMapZoom(userLocation ? config.map.nearMeZoom : config.map.defaultZoom)
   }, [userLocation])
 
-  // Handle boundary toggle from detail panel
-  const handleBoundaryToggle = useCallback((boundary, show) => {
+  // Handle boundary display from detail panel (auto-show when park is clicked)
+  const handleBoundaryToggle = useCallback((boundary) => {
     setParkBoundary(boundary)
-    setShowBoundary(show)
   }, [])
 
   // Calculate active filter count
@@ -134,10 +134,10 @@ export default function HomePage() {
               />
             ))}
             
-            {parkBoundary && showBoundary && selectedPark && (
+            {parkBoundary && selectedPark && (
               <ParkBoundary 
                 boundary={parkBoundary}
-                visible={showBoundary}
+                parkName={selectedPark.name}
               />
             )}
           </MapView>

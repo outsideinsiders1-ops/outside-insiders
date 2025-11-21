@@ -8,7 +8,6 @@ import { getAgencyFullName, getTodaySchedule } from '../../utils/helpers'
 
 const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
   const [boundary, setBoundary] = useState(null)
-  const [showBoundary, setShowBoundary] = useState(true)
   const [boundaryLoading, setBoundaryLoading] = useState(false)
 
   useEffect(() => {
@@ -22,6 +21,7 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
     try {
       const boundaryData = await fetchParkBoundary(park.id)
       setBoundary(boundaryData)
+      // Auto-show boundary when park is clicked (no toggle needed)
       if (onBoundaryToggle && boundaryData) {
         onBoundaryToggle(boundaryData, true)
       }
@@ -32,13 +32,7 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
     }
   }
 
-  const handleBoundaryToggle = () => {
-    const newShowState = !showBoundary
-    setShowBoundary(newShowState)
-    if (onBoundaryToggle && boundary) {
-      onBoundaryToggle(boundary, newShowState)
-    }
-  }
+  // Boundary auto-shows when park is clicked (no toggle needed)
 
   if (!park) return null
 
@@ -91,13 +85,9 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
           )}
           
           {boundary && (
-            <button 
-              className={`badge boundary-toggle ${showBoundary ? 'active' : ''}`}
-              onClick={handleBoundaryToggle}
-              title={showBoundary ? 'Hide boundary' : 'Show boundary'}
-            >
-              {showBoundary ? '🗺 Hide Boundary' : '🗺 Show Boundary'}
-            </button>
+            <span className="badge boundary-indicator" title="Park boundary displayed on map">
+              🗺 Boundary Shown
+            </span>
           )}
           
           {boundaryLoading && (
