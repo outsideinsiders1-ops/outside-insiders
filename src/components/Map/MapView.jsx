@@ -39,12 +39,17 @@ const MapView = ({ center, zoom, children }) => {
           : '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }
         url={MAPBOX_TOKEN 
-          ? `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
+          ? `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
           : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
         }
-        tileSize={MAPBOX_TOKEN ? 512 : 256}
-        zoomOffset={MAPBOX_TOKEN ? -1 : 0}
+        tileSize={256}
+        zoomOffset={0}
         errorTileUrl="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        eventHandlers={{
+          tileerror: (error) => {
+            console.error('Tile loading error:', error)
+          }
+        }}
       />
       <MapUpdater center={validCenter} zoom={validZoom} />
       {children}

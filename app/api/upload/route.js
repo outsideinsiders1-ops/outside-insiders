@@ -178,6 +178,52 @@ export async function POST(request) {
         mappedProps.state = defaultState
       }
       
+      // CRITICAL: Derive agency from sourceType if not found in file
+      // Agency is REQUIRED (NOT NULL) in database schema
+      if (!mappedProps.agency || mappedProps.agency === '') {
+        const stateName = mappedProps.state || defaultState || ''
+        if (sourceType && stateName) {
+          // Derive agency name from sourceType + state
+          const agencyMap = {
+            'State Agency': `${stateName} State Parks`,
+            'Public State': `${stateName} State Parks`,
+            'County Agency': `${stateName} County Parks`,
+            'City Agency': `${stateName} City Parks`,
+            'Public Federal': 'Federal Agency',
+            'Federal Agency': 'Federal Agency'
+          }
+          mappedProps.agency = agencyMap[sourceType] || sourceType
+          console.log(`Derived agency "${mappedProps.agency}" from sourceType "${sourceType}" and state "${stateName}"`)
+        } else {
+          // Fallback to sourceType if no state
+          mappedProps.agency = sourceType || 'Unknown Agency'
+        }
+      }
+      
+      // Filter ParkServe parks: only include if ParkAccess === 3 (Open Access)
+      if (mappedProps._parkAccess !== undefined && mappedProps._parkAccess !== null) {
+        const parkAccess = String(mappedProps._parkAccess).trim()
+        if (parkAccess !== '3' && parkAccess !== '3.0') {
+          console.log(`Skipping park ${mappedProps.name}: ParkAccess is ${parkAccess}, not 3 (Open Access)`)
+          continue // Skip this park
+        }
+      }
+      // Remove internal filter field
+      delete mappedProps._parkAccess
+      
+      // Set data_source field
+      if (!mappedProps.data_source) {
+        mappedProps.data_source = sourceType || sourceName
+      }
+      
+      // Ensure activities and amenities are JSON arrays (not strings)
+      if (mappedProps.activities && !Array.isArray(mappedProps.activities)) {
+        mappedProps.activities = [mappedProps.activities]
+      }
+      if (mappedProps.amenities && !Array.isArray(mappedProps.amenities)) {
+        mappedProps.amenities = [mappedProps.amenities]
+      }
+      
       // Log unmapped properties for debugging (only for first few features to avoid spam)
       if (i < 5) {
         logUnmappedProperties(props)

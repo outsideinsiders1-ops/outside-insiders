@@ -466,6 +466,10 @@ function AdminPanel() {
 
       const data = await response.json();
 
+      // Always clear previous results first
+      setSyncResult(null);
+      setSyncError(null);
+
       if (!response.ok) {
         // Handle different error types
         let errorMessage = data.error || `Sync failed with status ${response.status}`;
@@ -480,7 +484,7 @@ function AdminPanel() {
             errorMessage += `\n\nExample: ${JSON.stringify(data.example, null, 2)}`;
           }
         } else if (response.status === 501) {
-          // Not implemented yet
+          // Not implemented yet - show as error, not success
           errorMessage = 'API Sync is not yet implemented. This endpoint is coming soon.';
           if (data.note) {
             errorMessage += `\n\n${data.note}`;
@@ -488,6 +492,8 @@ function AdminPanel() {
           if (data.nextSteps) {
             errorMessage += `\n\nPlanned features:\n${data.nextSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
           }
+          setSyncError(errorMessage);
+          return; // Don't show as success
         } else if (response.status === 500) {
           // Server error
           errorMessage = `Server error: ${data.message || errorMessage}`;
@@ -500,10 +506,12 @@ function AdminPanel() {
         return;
       }
 
-      if (data.success) {
+      // Only show success if response.ok AND data.success is true
+      if (data.success === true) {
         setSyncResult(data);
       } else {
-        setSyncError(data.error || 'Sync failed');
+        // Even if response.ok, if success is false, show as error
+        setSyncError(data.error || data.message || 'Sync failed');
       }
     } catch (err) {
       console.error('API Sync error:', err);
