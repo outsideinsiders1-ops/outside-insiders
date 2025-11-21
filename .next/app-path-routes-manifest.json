@@ -1,8 +1,8 @@
 {
-  "/api/scrape/route": "/api/scrape",
   "/_not-found/page": "/_not-found",
+  "/api/scrape/route": "/api/scrape",
   "/api/sync/route": "/api/sync",
-  "/admin/page": "/admin",
   "/page": "/",
+  "/admin/page": "/admin",
   "/api/upload/route": "/api/upload"
 }

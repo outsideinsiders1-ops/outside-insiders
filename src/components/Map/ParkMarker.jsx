@@ -2,8 +2,8 @@
 // src/components/Map/ParkMarker.jsx
 // Individual park marker component
 
-import React from 'react'
-import { Marker, Popup, useMap } from 'react-leaflet'
+import React, { useRef, useEffect } from 'react'
+import { Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
@@ -33,13 +33,28 @@ function createIcon(agency) {
 
 const ParkMarker = ({ park, onDetailsClick }) => {
   const icon = createIcon(park.agency)
-  const map = useMap()
+  const markerRef = useRef(null)
+  
+  useEffect(() => {
+    if (markerRef.current) {
+      const marker = markerRef.current
+      marker.on('popupopen', () => {
+        // Store reference to popup for closing
+        marker._popup = marker.getPopup()
+      })
+    }
+  }, [])
   
   const handleViewDetails = (e) => {
     e.stopPropagation()
     
-    // Close all open popups on the map
-    map.closePopup()
+    // Close the popup if it's open
+    if (markerRef.current) {
+      const marker = markerRef.current
+      if (marker.isPopupOpen()) {
+        marker.closePopup()
+      }
+    }
     
     // Open detail panel
     onDetailsClick(park)
@@ -47,6 +62,7 @@ const ParkMarker = ({ park, onDetailsClick }) => {
   
   return (
     <Marker
+      ref={markerRef}
       position={[park.latitude, park.longitude]}
       icon={icon}
     >

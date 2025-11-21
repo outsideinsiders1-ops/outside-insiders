@@ -181,12 +181,38 @@ export async function POST(request) {
       }
       
       // Build park object with mapped properties
-      // Store geometry as GeoJSON object - Supabase will convert to geography type
+      // Store geometry for PostGIS geography type
+      // PostGIS geography expects GeoJSON in WGS84 (SRID 4326) format
+      let geometryValue = null
+      if (geometry) {
+        try {
+          // Ensure geometry is valid GeoJSON
+          if (geometry.type && geometry.coordinates) {
+            // For PostGIS geography, Supabase accepts GeoJSON object directly
+            // But we need to ensure it's valid - check for empty coordinates
+            const hasValidCoordinates = Array.isArray(geometry.coordinates) && 
+              geometry.coordinates.length > 0
+            
+            if (hasValidCoordinates) {
+              // Store as GeoJSON object - Supabase will convert to geography
+              // If this fails, we'll skip geometry for this park
+              geometryValue = geometry
+            } else {
+              console.warn(`Park ${mappedProps.name} has invalid geometry coordinates`)
+            }
+          }
+        } catch (err) {
+          console.warn(`Failed to process geometry for ${mappedProps.name}:`, err)
+          geometryValue = null
+        }
+      }
+      
       const park = {
         ...mappedProps,
         latitude,
         longitude,
-        geometry: geometry || null, // Store as GeoJSON object for PostGIS geography column
+        // Only include geometry if it's valid - PostGIS will reject invalid geometries
+        ...(geometryValue && { geometry: geometryValue }),
       }
       
       // Validate required fields
