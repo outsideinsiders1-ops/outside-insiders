@@ -7,6 +7,7 @@
 import { batchInsertOrUpdateParks } from '../../../lib/utils/db-operations.js'
 import { parseShapefile } from '../../../lib/utils/shapefile-parser.js'
 import { simplifyBoundary } from '../../../lib/utils/geometry-simplify.js'
+import { mapPropertiesToParkSchema, logUnmappedProperties } from '../../../lib/utils/field-mapper.js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
@@ -22,27 +23,60 @@ export async function POST(request) {
 
   try {
     const formData = await request.formData()
-    const file = formData.get('file')
+    const fileUrl = formData.get('fileUrl') // Supabase Storage URL
+    const file = formData.get('file') // Fallback for direct uploads (small files)
     const sourceType = formData.get('sourceType') || 'State Agency'
     const sourceName = formData.get('sourceName') || file?.name || 'unknown'
+    // Note: filePath available via formData.get('filePath') for future cleanup if needed
     
-    if (!file) {
+    // Determine if we're using storage URL or direct file upload
+    let fileToProcess = file
+    let fileName = file?.name || sourceName
+    
+    // If fileUrl is provided, download from Supabase Storage
+    if (fileUrl) {
+      try {
+        console.log(`Downloading file from storage: ${fileUrl}`)
+        const response = await fetch(fileUrl)
+        if (!response.ok) {
+          throw new Error(`Failed to download file from storage: ${response.statusText}`)
+        }
+        
+        // Get file as blob
+        const blob = await response.blob()
+        
+        // Create a File-like object from blob for processing
+        // Extract filename from URL or use sourceName
+        const urlParts = fileUrl.split('/')
+        const urlFileName = urlParts[urlParts.length - 1].split('?')[0] // Remove query params
+        fileName = urlFileName || sourceName
+        
+        fileToProcess = new File([blob], fileName, { type: blob.type })
+      } catch (error) {
+        return Response.json({ 
+          success: false, 
+          error: `Failed to download file from storage: ${error.message}` 
+        }, { status: 400, headers })
+      }
+    }
+    
+    if (!fileToProcess) {
       return Response.json({ 
         success: false, 
-        error: 'No file provided' 
+        error: 'No file provided. Please upload a file or provide a file URL.' 
       }, { status: 400, headers })
     }
     
     // Check file type
-    const fileName = file.name.toLowerCase()
-    const isShapefile = fileName.endsWith('.shp') || fileName.endsWith('.zip')
+    const fileNameLower = fileName.toLowerCase()
+    const isShapefile = fileNameLower.endsWith('.shp') || fileNameLower.endsWith('.zip')
     let geojson
     
     // Parse file based on type
     if (isShapefile) {
       try {
         // Parse Shapefile (handles both .shp and .zip)
-        geojson = await parseShapefile(file)
+        geojson = await parseShapefile(fileToProcess)
       } catch (error) {
         return Response.json({ 
           success: false, 
@@ -52,7 +86,7 @@ export async function POST(request) {
     } else {
       // Read and parse GeoJSON
       try {
-        const fileContent = await file.text()
+        const fileContent = await fileToProcess.text()
         geojson = JSON.parse(fileContent)
       } catch {
         return Response.json({ 
@@ -129,24 +163,21 @@ export async function POST(request) {
         boundary = simplifiedGeometry
       }
       
-      // Extract properties
+      // Extract properties and map to our schema
       const props = feature.properties
+      const mappedProps = mapPropertiesToParkSchema(props)
       
-      // Map common property names to our schema
+      // Log unmapped properties for debugging (only for first few features to avoid spam)
+      if (i < 5) {
+        logUnmappedProperties(props)
+      }
+      
+      // Build park object with mapped properties
       const park = {
-        name: props.name || props.NAME || props.ParkName || props.park_name || 'Unnamed Park',
-        description: props.description || props.DESCRIPTION || props.desc || null,
-        state: props.state || props.STATE || props.state_code || props.State || null,
-        agency: props.agency || props.AGENCY || props.agency_type || props.owner_type || null,
-        agency_type: props.agency_type || props.AGENCY_TYPE || props.owner_type || null,
-        website_url: props.website || props.WEBSITE || props.url || props.URL || null,
-        phone: props.phone || props.PHONE || props.telephone || null,
-        email: props.email || props.EMAIL || null,
+        ...mappedProps,
         latitude,
         longitude,
         boundary: boundary ? JSON.stringify(boundary) : null,
-        amenities: props.amenities || props.AMENITIES || (Array.isArray(props.amenities) ? props.amenities : null),
-        activities: props.activities || props.ACTIVITIES || (Array.isArray(props.activities) ? props.activities : null),
       }
       
       // Validate required fields

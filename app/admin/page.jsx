@@ -298,15 +298,55 @@ function AdminPanel() {
       return;
     }
 
+    if (!supabase) {
+      setUploadError('Supabase client not initialized');
+      return;
+    }
+
     setUploadLoading(true);
     setUploadError(null);
     setUploadResult(null);
 
+    let filePath = null; // Track file path for cleanup
+
     try {
+      // Step 1: Upload file to Supabase Storage (bypasses Vercel 4.5MB limit)
+      const fileName = `${Date.now()}-${uploadFile.name}`;
+      filePath = `uploads/${fileName}`;
+      
+      console.log(`Uploading ${uploadFile.name} (${(uploadFile.size / 1024 / 1024).toFixed(2)} MB) to Supabase Storage...`);
+      
+      const { error: uploadError } = await supabase.storage
+        .from('park-uploads')
+        .upload(filePath, uploadFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        // If bucket doesn't exist, try to create it (this will fail if user doesn't have permissions)
+        if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('not found')) {
+          setUploadError('Storage bucket "park-uploads" not found. Please create it in Supabase Dashboard > Storage.');
+          return;
+        }
+        throw uploadError;
+      }
+
+      // Step 2: Get public URL or create signed URL
+      const { data: urlData } = supabase.storage
+        .from('park-uploads')
+        .getPublicUrl(filePath);
+
+      const fileUrl = urlData.publicUrl;
+
+      console.log('File uploaded to storage, processing...');
+
+      // Step 3: Call API with file URL instead of file data
       const formData = new FormData();
-      formData.append('file', uploadFile);
+      formData.append('fileUrl', fileUrl);
       formData.append('sourceType', uploadSourceType);
       formData.append('sourceName', uploadFile.name);
+      formData.append('filePath', filePath); // For cleanup later
 
       // Set a longer timeout for large files (5 minutes)
       const controller = new AbortController();
@@ -342,11 +382,37 @@ function AdminPanel() {
         // Reset file input element
         const fileInput = document.querySelector('input[type="file"]')
         if (fileInput) fileInput.value = ''
+        
+        // Optional: Clean up file from storage after successful processing
+        // Uncomment if you want to delete files after processing
+        // try {
+        //   await supabase.storage.from('park-uploads').remove([filePath])
+        // } catch (cleanupError) {
+        //   console.warn('Failed to cleanup storage file:', cleanupError)
+        // }
       } else {
         setUploadError(data.error || 'Upload failed')
+        // Clean up uploaded file on error
+        if (filePath) {
+          try {
+            await supabase.storage.from('park-uploads').remove([filePath])
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup storage file on error:', cleanupError)
+          }
+        }
       }
     } catch (err) {
       console.error('Upload error:', err)
+      
+      // Clean up uploaded file on error
+      if (filePath) {
+        try {
+          await supabase.storage.from('park-uploads').remove([filePath])
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup storage file on error:', cleanupError)
+        }
+      }
+      
       if (err.name === 'AbortError') {
         setUploadError('Upload timed out after 5 minutes. The file may be too large. Please try splitting it into smaller files or contact support.')
       } else {

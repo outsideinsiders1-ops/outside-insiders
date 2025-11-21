@@ -3,7 +3,7 @@
 // Individual park marker component
 
 import React from 'react'
-import { Marker, Popup } from 'react-leaflet'
+import { Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
@@ -33,6 +33,17 @@ function createIcon(agency) {
 
 const ParkMarker = ({ park, onDetailsClick }) => {
   const icon = createIcon(park.agency)
+  const map = useMap()
+  
+  const handleViewDetails = (e) => {
+    e.stopPropagation()
+    
+    // Close all open popups on the map
+    map.closePopup()
+    
+    // Open detail panel
+    onDetailsClick(park)
+  }
   
   return (
     <Marker
@@ -59,10 +70,7 @@ const ParkMarker = ({ park, onDetailsClick }) => {
           
           <button 
             className="detail-button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDetailsClick(park)
-            }}
+            onClick={handleViewDetails}
           >
             View Details
           </button>
