@@ -5,6 +5,8 @@
  */
 
 import { batchInsertOrUpdateParks } from '../../../lib/utils/db-operations.js'
+import { parseShapefile } from '../../../lib/utils/shapefile-parser.js'
+import { simplifyBoundary } from '../../../lib/utils/geometry-simplify.js'
 
 export async function POST(request) {
   // Set CORS headers
@@ -30,26 +32,30 @@ export async function POST(request) {
     // Check file type
     const fileName = file.name.toLowerCase()
     const isShapefile = fileName.endsWith('.shp') || fileName.endsWith('.zip')
-    
-    if (isShapefile) {
-      return Response.json({ 
-        success: false, 
-        error: 'Shapefile support coming soon. Please convert your Shapefile to GeoJSON format first. You can use tools like QGIS, ArcGIS, or online converters like mapshaper.org' 
-      }, { status: 400, headers })
-    }
-    
-    // Read file content
-    const fileContent = await file.text()
     let geojson
     
-    // Parse GeoJSON
-    try {
-      geojson = JSON.parse(fileContent)
-    } catch {
-      return Response.json({ 
-        success: false, 
-        error: 'Invalid JSON file. Please upload a valid GeoJSON file (.geojson or .json with GeoJSON format).' 
-      }, { status: 400, headers })
+    // Parse file based on type
+    if (isShapefile) {
+      try {
+        // Parse Shapefile (handles both .shp and .zip)
+        geojson = await parseShapefile(file)
+      } catch (error) {
+        return Response.json({ 
+          success: false, 
+          error: `Failed to parse shapefile: ${error.message}` 
+        }, { status: 400, headers })
+      }
+    } else {
+      // Read and parse GeoJSON
+      try {
+        const fileContent = await file.text()
+        geojson = JSON.parse(fileContent)
+      } catch {
+        return Response.json({ 
+          success: false, 
+          error: 'Invalid JSON file. Please upload a valid GeoJSON file (.geojson or .json with GeoJSON format).' 
+        }, { status: 400, headers })
+      }
     }
     
     // Validate GeoJSON structure
@@ -105,8 +111,10 @@ export async function POST(request) {
           latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
         }
         
-        // Store boundary geometry
-        boundary = feature.geometry
+        // Simplify boundary geometry to reduce file size (~500 feet accuracy)
+        // This significantly reduces point count while maintaining visual accuracy
+        const simplifiedGeometry = simplifyBoundary(feature.geometry, 152) // 152 meters = ~500 feet
+        boundary = simplifiedGeometry
       }
       
       // Extract properties
