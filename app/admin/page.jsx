@@ -38,6 +38,7 @@ function AdminPanel() {
   // File Upload state
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadSourceType, setUploadSourceType] = useState('State Agency');
+  const [uploadState, setUploadState] = useState('');
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
@@ -347,6 +348,9 @@ function AdminPanel() {
       formData.append('sourceType', uploadSourceType);
       formData.append('sourceName', uploadFile.name);
       formData.append('filePath', filePath); // For cleanup later
+      if (uploadState) {
+        formData.append('defaultState', uploadState.trim());
+      }
 
       // Set a longer timeout for large files (5 minutes)
       const controller = new AbortController();
@@ -739,7 +743,22 @@ function AdminPanel() {
             </div>
 
             <div className="form-group">
-              <label>2️⃣ Select File (GeoJSON, Shapefile, or ZIP):</label>
+              <label>2️⃣ Enter State (if not in file):</label>
+              <input
+                type="text"
+                value={uploadState}
+                onChange={(e) => setUploadState(e.target.value)}
+                placeholder="e.g., Georgia, GA, or leave empty if file contains state"
+                disabled={uploadLoading}
+                style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+              />
+              <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                <strong>Note:</strong> Many shapefiles don't include state information. Enter the state here if your file doesn't have it.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>3️⃣ Select File (GeoJSON, Shapefile, or ZIP):</label>
               <input
                 type="file"
                 accept=".geojson,.json,.shp,.zip"

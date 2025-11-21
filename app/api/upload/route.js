@@ -27,6 +27,7 @@ export async function POST(request) {
     const file = formData.get('file') // Fallback for direct uploads (small files)
     const sourceType = formData.get('sourceType') || 'State Agency'
     const sourceName = formData.get('sourceName') || file?.name || 'unknown'
+    const defaultState = formData.get('defaultState') || null // User-provided state if file doesn't have it
     // Note: filePath available via formData.get('filePath') for future cleanup if needed
     
     // Determine if we're using storage URL or direct file upload
@@ -166,6 +167,11 @@ export async function POST(request) {
       // Extract properties and map to our schema
       const props = feature.properties
       const mappedProps = mapPropertiesToParkSchema(props)
+      
+      // Use defaultState if state is not in the file
+      if (!mappedProps.state && defaultState) {
+        mappedProps.state = defaultState
+      }
       
       // Log unmapped properties for debugging (only for first few features to avoid spam)
       if (i < 5) {
