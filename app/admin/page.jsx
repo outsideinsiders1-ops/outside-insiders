@@ -630,29 +630,42 @@ function AdminPanel() {
 
   // ==================== DATA QUALITY HANDLERS ====================
   const loadQualityAnalysis = async () => {
+    if (!supabase) {
+      setQualityError('Supabase client not initialized');
+      return;
+    }
+
     setQualityLoading(true);
     setQualityError(null);
 
     try {
-      const params = new URLSearchParams();
-      if (qualityFilters.state) params.append('state', qualityFilters.state);
-      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
-      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
+      // Direct Supabase query for analysis
+      let query = supabase
+        .from('parks')
+        .select('*');
 
-      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        setQualityError(data.error || 'Failed to load quality analysis');
-        return;
+      if (qualityFilters.state) {
+        query = query.eq('state', qualityFilters.state);
+      }
+      if (qualityFilters.agency) {
+        query = query.eq('agency', qualityFilters.agency);
+      }
+      if (qualityFilters.dataSource) {
+        query = query.eq('data_source', qualityFilters.dataSource);
       }
 
-      if (data.success) {
-        setQualityAnalysis(data.analysis);
+      const { data: parks, error } = await query;
+
+      if (error) {
+        throw new Error(error.message || 'Failed to load parks');
+      }
+
+      if (parks) {
+        // Calculate quality analysis client-side
+        const analysis = analyzeParksQuality(parks);
+        setQualityAnalysis(analysis);
         // Also load all parks for search
         await loadAllParks();
-      } else {
-        setQualityError(data.error || 'Failed to load quality analysis');
       }
     } catch (err) {
       console.error('Quality analysis error:', err);

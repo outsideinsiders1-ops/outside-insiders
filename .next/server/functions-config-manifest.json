@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/admin/data-quality": {},
+    "/api/upload": {
+      "maxDuration": 300
+    }
+  }
+}
