@@ -84,6 +84,13 @@ function AdminPanel() {
     loadDataSourceOptions();
   }, []);
 
+  // Load all parks when Data Quality tab is active (Excel-like experience)
+  useEffect(() => {
+    if (activeTab === 'data-quality' && allParks.length === 0 && !qualityLoading) {
+      loadAllParks();
+    }
+  }, [activeTab]);
+
   // Load agency options for dropdown
   const loadAgencyOptions = async () => {
     if (!supabase) return;
@@ -395,7 +402,9 @@ function AdminPanel() {
         console.log(`Uploading ${fileSizeMB.toFixed(2)} MB file in chunks to Supabase Storage...`);
         
         // Import and use chunked upload utility
-        const { uploadFileInChunks } = await import('../../../lib/utils/chunked-upload.js');
+        // For client-side, use relative path from app/admin
+        const chunkedUploadModule = await import('../../lib/utils/chunked-upload.js');
+        const { uploadFileInChunks } = chunkedUploadModule;
         
         const result = await uploadFileInChunks(
           supabase,
@@ -653,102 +662,100 @@ function AdminPanel() {
   };
 
   const loadAllParks = async () => {
+    setQualityLoading(true);
+    setQualityError(null);
     try {
       const params = new URLSearchParams();
       if (qualityFilters.state) params.append('state', qualityFilters.state);
       if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
       if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
       params.append('action', 'filter');
-      // Get all parks (no filter criteria)
+      // Get all parks (no filter criteria - load everything for Excel-like experience)
       
       const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
       const data = await response.json();
 
       if (data.success && data.filteredParks) {
         setAllParks(data.filteredParks);
-        // Apply search if there's a query
+        // Apply current search query if exists, otherwise show all
         if (searchQuery) {
-          applySearch(searchQuery, data.filteredParks);
+          handleSearchChange({ target: { value: searchQuery } });
         } else {
           setFilteredParks(data.filteredParks);
         }
+      } else {
+        setQualityError(data.error || 'Failed to load parks');
       }
     } catch (err) {
       console.error('Load parks error:', err);
-    }
-  };
-
-  const applySearch = (query, parksToSearch = allParks) => {
-    if (!query.trim()) {
-      setFilteredParks(parksToSearch);
-      return;
-    }
-
-    const queryLower = query.toLowerCase().trim();
-    const filtered = parksToSearch.filter(park => {
-      // Search in name
-      if (park.name?.toLowerCase().includes(queryLower)) return true;
-      // Search in state
-      if (park.state?.toLowerCase().includes(queryLower)) return true;
-      // Search in agency
-      if (park.agency?.toLowerCase().includes(queryLower)) return true;
-      // Search in county (if available)
-      if (park.county?.toLowerCase().includes(queryLower)) return true;
-      // Search in city/metro keywords
-      const cityKeywords = ['city', 'metro', 'urban', 'municipal'];
-      if (cityKeywords.some(keyword => queryLower.includes(keyword))) {
-        // Could match city parks
-        return true;
-      }
-      // Federal agency keywords
-      const federalKeywords = ['federal', 'nps', 'blm', 'usfs', 'fws', 'national'];
-      if (federalKeywords.some(keyword => queryLower.includes(keyword))) {
-        if (park.agency && federalKeywords.some(k => park.agency.toLowerCase().includes(k))) {
-          return true;
-        }
-      }
-      return false;
-    });
-
-    setFilteredParks(filtered);
-  };
-
-  const handleSearchChange = async (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    
-    // If query is empty, clear results
-    if (!query.trim()) {
-      setFilteredParks([]);
-      setAllParks([]);
-      return;
-    }
-    
-    // Search on-demand - load parks matching search criteria
-    setQualityLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.append('action', 'filter');
-      // Add search as nameKeywords filter
-      params.append('nameKeywords', query);
-      
-      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
-      const data = await response.json();
-      
-      if (data.success && data.filteredParks) {
-        setAllParks(data.filteredParks);
-        setFilteredParks(data.filteredParks);
-      } else {
-        setFilteredParks([]);
-        setAllParks([]);
-      }
-    } catch (err) {
-      console.error('Search error:', err);
-      setFilteredParks([]);
-      setAllParks([]);
+      setQualityError(`Error loading parks: ${err.message}`);
     } finally {
       setQualityLoading(false);
     }
+  };
+
+  // Apply filters (state, agency, data source) and search query
+  const applyFilters = () => {
+    let filtered = [...allParks];
+    
+    // Apply dropdown filters
+    if (qualityFilters.state) {
+      filtered = filtered.filter(p => p.state === qualityFilters.state);
+    }
+    if (qualityFilters.agency) {
+      filtered = filtered.filter(p => p.agency === qualityFilters.agency);
+    }
+    if (qualityFilters.dataSource) {
+      filtered = filtered.filter(p => p.data_source === qualityFilters.dataSource);
+    }
+    
+    // Apply search query
+    if (searchQuery.trim()) {
+      const queryLower = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(park => {
+        if (park.name?.toLowerCase().includes(queryLower)) return true;
+        if (park.state?.toLowerCase().includes(queryLower)) return true;
+        if (park.agency?.toLowerCase().includes(queryLower)) return true;
+        if (park.county?.toLowerCase().includes(queryLower)) return true;
+        if (park.city?.toLowerCase().includes(queryLower)) return true;
+        if (park.address?.toLowerCase().includes(queryLower)) return true;
+        if (park.description?.toLowerCase().includes(queryLower)) return true;
+        return false;
+      });
+    }
+    
+    setFilteredParks(filtered);
+  };
+
+
+  const handleSearchChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    
+    // Excel-like: Filter client-side from already-loaded parks
+    // No API calls - instant filtering as you type
+    if (!query.trim()) {
+      // If no search query, show all parks (or apply other filters)
+      applyFilters();
+      return;
+    }
+    
+    // Filter parks client-side based on search query
+    const queryLower = query.toLowerCase().trim();
+    const filtered = allParks.filter(park => {
+      // Search across multiple fields like Excel
+      if (park.name?.toLowerCase().includes(queryLower)) return true;
+      if (park.state?.toLowerCase().includes(queryLower)) return true;
+      if (park.agency?.toLowerCase().includes(queryLower)) return true;
+      if (park.county?.toLowerCase().includes(queryLower)) return true;
+      if (park.city?.toLowerCase().includes(queryLower)) return true;
+      if (park.address?.toLowerCase().includes(queryLower)) return true;
+      if (park.description?.toLowerCase().includes(queryLower)) return true;
+      // Search in any field that might contain the query
+      return false;
+    });
+    
+    setFilteredParks(filtered);
   };
 
   const loadQualityBreakdown = async (groupBy) => {
@@ -774,8 +781,8 @@ function AdminPanel() {
         return;
       }
 
-      if (data.success) {
-        setQualityBreakdown(data.breakdown);
+      if (data.success && data.matrix) {
+        setQualityBreakdown(data.matrix);
         setBreakdownGroupBy(groupBy);
       } else {
         setQualityError(data.error || 'Failed to load quality breakdown');
@@ -823,9 +830,9 @@ function AdminPanel() {
       if (data.success) {
         const filtered = data.filteredParks || [];
         setAllParks(filtered);
-        // Apply search if there's a query
+        // Apply current search query if exists, otherwise show all
         if (searchQuery) {
-          applySearch(searchQuery, filtered);
+          handleSearchChange({ target: { value: searchQuery } });
         } else {
           setFilteredParks(filtered);
         }
@@ -1517,9 +1524,11 @@ function AdminPanel() {
                   fontSize: '1.2rem'
                 }}>🔍</span>
               </div>
-              {searchQuery && (
+              {allParks.length > 0 && (
                 <p style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
-                  {qualityLoading ? 'Searching...' : `Found ${filteredParks.length} park(s) matching "${searchQuery}"`}
+                  {searchQuery 
+                    ? `Showing ${filteredParks.length} of ${allParks.length} parks${searchQuery ? ` matching "${searchQuery}"` : ''}`
+                    : `Showing ${filteredParks.length} of ${allParks.length} parks`}
                 </p>
               )}
             </div>
@@ -1788,15 +1797,33 @@ function AdminPanel() {
               </div>
             )}
 
-            {!searchQuery && filteredParks.length === 0 && !qualityLoading && (
+            {allParks.length === 0 && !qualityLoading && (
               <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px', marginTop: '20px' }}>
-                <p style={{ color: '#666', marginBottom: '15px' }}>Enter a search term above to find parks</p>
+                <p style={{ color: '#666', marginBottom: '15px' }}>Click "🔄 Refresh Data" to load parks, or start typing in the search bar to search</p>
+                <button
+                  onClick={loadAllParks}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                >
+                  {qualityLoading ? '⏳ Loading...' : '🔄 Load Parks'}
+                </button>
               </div>
             )}
             
-            {searchQuery && filteredParks.length === 0 && !qualityLoading && (
+            {allParks.length > 0 && filteredParks.length === 0 && !qualityLoading && (
               <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px', marginTop: '20px' }}>
-                <p style={{ color: '#666' }}>No parks found matching "{searchQuery}"</p>
+                <p style={{ color: '#666' }}>No parks found matching your search/filter criteria</p>
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setQualityFilters({ state: '', agency: '', dataSource: '' });
+                    setFilteredParks(allParks);
+                  }}
+                  className="primary-button"
+                  style={{ marginTop: '10px' }}
+                >
+                  Clear Filters
+                </button>
               </div>
             )}
 
