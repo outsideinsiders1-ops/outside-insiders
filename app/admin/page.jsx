@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { calculateDataQualityScore, calculateQualityBreakdownMatrix, analyzeParksQuality } from '../../lib/utils/data-quality.js';
 import './AdminPanel.css';
 
 // Initialize Supabase client (with fallback for build time)
@@ -662,44 +663,50 @@ function AdminPanel() {
   };
 
   const loadAllParks = async () => {
+    if (!supabase) {
+      setQualityError('Supabase client not initialized');
+      return;
+    }
+
     setQualityLoading(true);
     setQualityError(null);
     try {
-      const params = new URLSearchParams();
-      if (qualityFilters.state) params.append('state', qualityFilters.state);
-      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
-      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
-      params.append('action', 'filter');
-      // Get all parks (no filter criteria - load everything for Excel-like experience)
-      
-      const url = `/api/admin/data-quality?${params.toString()}`;
-      console.log('Loading parks from:', url);
-      
-      // Use fetch with explicit GET method (default, but explicit for clarity)
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store', // Ensure fresh request
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
+      // Direct Supabase query - Excel-like direct database access
+      let query = supabase
+        .from('parks')
+        .select('*');
 
-      if (data.success && data.filteredParks) {
-        setAllParks(data.filteredParks);
+      // Apply filters
+      if (qualityFilters.state) {
+        query = query.eq('state', qualityFilters.state);
+      }
+      if (qualityFilters.agency) {
+        query = query.eq('agency', qualityFilters.agency);
+      }
+      if (qualityFilters.dataSource) {
+        query = query.eq('data_source', qualityFilters.dataSource);
+      }
+
+      const { data: parks, error } = await query;
+
+      if (error) {
+        throw new Error(error.message || 'Failed to load parks');
+      }
+
+      if (parks) {
+        // Calculate quality scores for each park
+        const parksWithScores = parks.map(park => ({
+          ...park,
+          qualityScore: calculateDataQualityScore(park)
+        }));
+
+        setAllParks(parksWithScores);
         // Apply current search query if exists, otherwise show all
         if (searchQuery) {
           handleSearchChange({ target: { value: searchQuery } });
         } else {
-          setFilteredParks(data.filteredParks);
+          setFilteredParks(parksWithScores);
         }
-      } else {
-        setQualityError(data.error || 'Failed to load parks');
       }
     } catch (err) {
       console.error('Load parks error:', err);
@@ -774,34 +781,20 @@ function AdminPanel() {
   };
 
   const loadQualityBreakdown = async (groupBy) => {
-    if (!allParks || allParks.length === 0) {
-      setQualityError('Please load parks first');
+    if (!filteredParks || filteredParks.length === 0) {
+      setQualityError('Please search for parks first');
       return;
     }
 
     setBreakdownLoading(true);
+    setQualityError(null);
     try {
-      const params = new URLSearchParams();
-      if (qualityFilters.state) params.append('state', qualityFilters.state);
-      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
-      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
-      params.append('action', 'breakdown');
-      params.append('groupBy', groupBy);
-
-      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        setQualityError(data.error || 'Failed to load quality breakdown');
-        return;
-      }
-
-      if (data.success && data.matrix) {
-        setQualityBreakdown(data.matrix);
-        setBreakdownGroupBy(groupBy);
-      } else {
-        setQualityError(data.error || 'Failed to load quality breakdown');
-      }
+      // Calculate breakdown client-side from already-loaded parks
+      const fields = ['name', 'description', 'website', 'phone', 'address'];
+      const matrix = calculateQualityBreakdownMatrix(filteredParks, groupBy, fields);
+      
+      setQualityBreakdown(matrix);
+      setBreakdownGroupBy(groupBy);
     } catch (err) {
       console.error('Breakdown error:', err);
       setQualityError(`Error: ${err.message}`);
@@ -810,58 +803,7 @@ function AdminPanel() {
     }
   };
 
-  const loadFilteredParks = async (filterCriteria) => {
-    setQualityLoading(true);
-    setQualityError(null);
-
-    try {
-      const params = new URLSearchParams();
-      if (qualityFilters.state) params.append('state', qualityFilters.state);
-      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
-      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
-      params.append('action', 'filter');
-
-      if (filterCriteria.nameKeywords) {
-        params.append('nameKeywords', filterCriteria.nameKeywords.join(','));
-      }
-      if (filterCriteria.maxAcres !== undefined) {
-        params.append('maxAcres', filterCriteria.maxAcres);
-      }
-      if (filterCriteria.minAcres !== undefined) {
-        params.append('minAcres', filterCriteria.minAcres);
-      }
-      if (filterCriteria.missingFields) {
-        params.append('missingFields', filterCriteria.missingFields.join(','));
-      }
-
-      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        setQualityError(data.error || 'Failed to load filtered parks');
-        return;
-      }
-
-      if (data.success) {
-        const filtered = data.filteredParks || [];
-        setAllParks(filtered);
-        // Apply current search query if exists, otherwise show all
-        if (searchQuery) {
-          handleSearchChange({ target: { value: searchQuery } });
-        } else {
-          setFilteredParks(filtered);
-        }
-        setSelectedParks(new Set()); // Clear selection
-      } else {
-        setQualityError(data.error || 'Failed to load filtered parks');
-      }
-    } catch (err) {
-      console.error('Filter parks error:', err);
-      setQualityError(`Error: ${err.message}`);
-    } finally {
-      setQualityLoading(false);
-    }
-  };
+  // loadFilteredParks is no longer needed - filtering is done client-side via applyFilters()
 
   const handleSaveEdits = async () => {
     if (editedParks.size === 0) {
@@ -948,11 +890,7 @@ function AdminPanel() {
         alert(`Successfully deleted ${data.deleted} park(s)`);
         setSelectedParks(new Set());
         // Reload analysis
-        loadQualityAnalysis();
-        // Reload filtered parks if any
-        if (filteredParks.length > 0) {
-          loadFilteredParks({});
-        }
+        await loadQualityAnalysis();
       }
     } catch (err) {
       console.error('Delete parks error:', err);
