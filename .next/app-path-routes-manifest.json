@@ -1,10 +1,10 @@
 {
-  "/api/admin/data-quality/route": "/api/admin/data-quality",
+  "/_not-found/page": "/_not-found",
   "/api/admin/data-quality/update/route": "/api/admin/data-quality/update",
   "/api/scrape/route": "/api/scrape",
   "/api/sync/route": "/api/sync",
-  "/_not-found/page": "/_not-found",
+  "/api/admin/data-quality/route": "/api/admin/data-quality",
+  "/api/upload/route": "/api/upload",
   "/admin/page": "/admin",
-  "/page": "/",
-  "/api/upload/route": "/api/upload"
+  "/page": "/"
 }

@@ -6,6 +6,10 @@
 import { supabaseServer } from '../../../../lib/supabase-server.js'
 import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore, calculateQualityBreakdown, calculateQualityBreakdownMatrix } from '../../../../lib/utils/data-quality.js'
 
+// Route segment config for Next.js
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function GET(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
