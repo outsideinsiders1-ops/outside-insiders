@@ -675,11 +675,13 @@ function AdminPanel() {
       const url = `/api/admin/data-quality?${params.toString()}`;
       console.log('Loading parks from:', url);
       
+      // Use fetch with explicit GET method (default, but explicit for clarity)
       const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+        cache: 'no-store', // Ensure fresh request
       });
       
       if (!response.ok) {

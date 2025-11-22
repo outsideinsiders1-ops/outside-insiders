@@ -10,6 +10,7 @@ import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore, 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+// Ensure GET handler is properly exported
 export async function GET(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
