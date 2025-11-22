@@ -60,9 +60,20 @@ function AdminPanel() {
     agency: '',
     dataSource: ''
   });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [allParks, setAllParks] = useState([]); // Store all parks for client-side search
   const [filteredParks, setFilteredParks] = useState([]);
   const [selectedParks, setSelectedParks] = useState(new Set());
   const [deleteLoading, setDeleteLoading] = useState(false);
+  // Inline editing state
+  const [editedParks, setEditedParks] = useState(new Map()); // Map of parkId -> { field: value }
+  const [editingCell, setEditingCell] = useState(null); // { parkId, field }
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message }
+  // Quality breakdown state
+  const [breakdownGroupBy, setBreakdownGroupBy] = useState('agency');
+  const [qualityBreakdown, setQualityBreakdown] = useState(null);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
 
   // ==================== LOAD GEOGRAPHIC DATA ====================
   useEffect(() => {
@@ -560,6 +571,8 @@ function AdminPanel() {
 
       if (data.success) {
         setQualityAnalysis(data.analysis);
+        // Also load all parks for search
+        await loadAllParks();
       } else {
         setQualityError(data.error || 'Failed to load quality analysis');
       }
@@ -568,6 +581,110 @@ function AdminPanel() {
       setQualityError(`Error: ${err.message}`);
     } finally {
       setQualityLoading(false);
+    }
+  };
+
+  const loadAllParks = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (qualityFilters.state) params.append('state', qualityFilters.state);
+      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
+      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
+      params.append('action', 'filter');
+      // Get all parks (no filter criteria)
+      
+      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const data = await response.json();
+
+      if (data.success && data.filteredParks) {
+        setAllParks(data.filteredParks);
+        // Apply search if there's a query
+        if (searchQuery) {
+          applySearch(searchQuery, data.filteredParks);
+        } else {
+          setFilteredParks(data.filteredParks);
+        }
+      }
+    } catch (err) {
+      console.error('Load parks error:', err);
+    }
+  };
+
+  const applySearch = (query, parksToSearch = allParks) => {
+    if (!query.trim()) {
+      setFilteredParks(parksToSearch);
+      return;
+    }
+
+    const queryLower = query.toLowerCase().trim();
+    const filtered = parksToSearch.filter(park => {
+      // Search in name
+      if (park.name?.toLowerCase().includes(queryLower)) return true;
+      // Search in state
+      if (park.state?.toLowerCase().includes(queryLower)) return true;
+      // Search in agency
+      if (park.agency?.toLowerCase().includes(queryLower)) return true;
+      // Search in county (if available)
+      if (park.county?.toLowerCase().includes(queryLower)) return true;
+      // Search in city/metro keywords
+      const cityKeywords = ['city', 'metro', 'urban', 'municipal'];
+      if (cityKeywords.some(keyword => queryLower.includes(keyword))) {
+        // Could match city parks
+        return true;
+      }
+      // Federal agency keywords
+      const federalKeywords = ['federal', 'nps', 'blm', 'usfs', 'fws', 'national'];
+      if (federalKeywords.some(keyword => queryLower.includes(keyword))) {
+        if (park.agency && federalKeywords.some(k => park.agency.toLowerCase().includes(k))) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    setFilteredParks(filtered);
+  };
+
+  const handleSearchChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    applySearch(query);
+  };
+
+  const loadQualityBreakdown = async (groupBy) => {
+    if (!allParks || allParks.length === 0) {
+      setQualityError('Please load parks first');
+      return;
+    }
+
+    setBreakdownLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (qualityFilters.state) params.append('state', qualityFilters.state);
+      if (qualityFilters.agency) params.append('agency', qualityFilters.agency);
+      if (qualityFilters.dataSource) params.append('data_source', qualityFilters.dataSource);
+      params.append('action', 'breakdown');
+      params.append('groupBy', groupBy);
+
+      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setQualityError(data.error || 'Failed to load quality breakdown');
+        return;
+      }
+
+      if (data.success) {
+        setQualityBreakdown(data.breakdown);
+        setBreakdownGroupBy(groupBy);
+      } else {
+        setQualityError(data.error || 'Failed to load quality breakdown');
+      }
+    } catch (err) {
+      console.error('Breakdown error:', err);
+      setQualityError(`Error: ${err.message}`);
+    } finally {
+      setBreakdownLoading(false);
     }
   };
 
@@ -604,7 +721,14 @@ function AdminPanel() {
       }
 
       if (data.success) {
-        setFilteredParks(data.filteredParks || []);
+        const filtered = data.filteredParks || [];
+        setAllParks(filtered);
+        // Apply search if there's a query
+        if (searchQuery) {
+          applySearch(searchQuery, filtered);
+        } else {
+          setFilteredParks(filtered);
+        }
         setSelectedParks(new Set()); // Clear selection
       } else {
         setQualityError(data.error || 'Failed to load filtered parks');
@@ -614,6 +738,57 @@ function AdminPanel() {
       setQualityError(`Error: ${err.message}`);
     } finally {
       setQualityLoading(false);
+    }
+  };
+
+  const handleSaveEdits = async () => {
+    if (editedParks.size === 0) {
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveStatus(null);
+
+    try {
+      // Convert Map to array of updates
+      const updates = Array.from(editedParks.entries()).map(([parkId, changes]) => ({
+        id: parkId,
+        ...changes
+      }));
+
+      const response = await fetch('/api/admin/data-quality/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ updates }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setSaveStatus({ type: 'error', message: data.error || 'Failed to save changes' });
+        return;
+      }
+
+      if (data.success) {
+        setSaveStatus({ type: 'success', message: `Successfully updated ${data.updated} park(s)` });
+        setEditedParks(new Map());
+        setEditingCell(null);
+        
+        // Reload parks to reflect changes
+        await loadAllParks();
+        
+        // Clear status after 3 seconds
+        setTimeout(() => setSaveStatus(null), 3000);
+      } else {
+        setSaveStatus({ type: 'error', message: data.error || 'Failed to save changes' });
+      }
+    } catch (err) {
+      console.error('Save edits error:', err);
+      setSaveStatus({ type: 'error', message: `Error: ${err.message}` });
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -1213,8 +1388,42 @@ function AdminPanel() {
           <div className="section">
             <h2>🔍 Data Quality & Cleanup</h2>
             <p className="section-description">
-              Review data quality metrics, identify issues, and clean up your database
+              Search and filter parks, review data quality, and clean up your database
             </p>
+
+            {/* Search Bar */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  placeholder="Search by city, metro, county, state, federal agency, or any keyword..."
+                  disabled={qualityLoading || allParks.length === 0}
+                  style={{
+                    width: '100%',
+                    padding: '12px 45px 12px 15px',
+                    fontSize: '1rem',
+                    border: '2px solid #ddd',
+                    borderRadius: '8px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <span style={{
+                  position: 'absolute',
+                  right: '15px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  fontSize: '1.2rem'
+                }}>🔍</span>
+              </div>
+              {allParks.length > 0 && (
+                <p style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
+                  Showing {filteredParks.length} of {allParks.length} parks
+                  {searchQuery && ` matching "${searchQuery}"`}
+                </p>
+              )}
+            </div>
 
             {/* Filters */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
@@ -1275,197 +1484,335 @@ function AdminPanel() {
               </div>
             )}
 
-            {/* Quality Metrics */}
-            {qualityAnalysis && (
-              <div style={{ marginBottom: '30px' }}>
-                <h3>📊 Quality Metrics</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginTop: '15px' }}>
-                  <div style={{ padding: '15px', background: '#f0f7ed', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.total}</div>
-                    <div>Total Parks</div>
-                  </div>
-                  <div style={{ padding: '15px', background: '#e8f4f8', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.averageQualityScore.toFixed(1)}</div>
-                    <div>Avg Quality Score</div>
-                  </div>
-                  <div style={{ padding: '15px', background: '#fff4e6', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.likelyNonParks.length}</div>
-                    <div>Likely Non-Parks</div>
-                  </div>
-                  <div style={{ padding: '15px', background: '#fee', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>{qualityAnalysis.issues.length}</div>
-                    <div>Parks with Issues</div>
-                  </div>
-                </div>
 
-                <div style={{ marginTop: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
-                  <h4>Field Completeness</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginTop: '10px' }}>
-                    <div>📍 Coordinates: {qualityAnalysis.percentages.withCoordinates}%</div>
-                    <div>📝 Description: {qualityAnalysis.percentages.withDescription}%</div>
-                    <div>🌐 Website: {qualityAnalysis.percentages.withWebsite}%</div>
-                    <div>📞 Phone: {qualityAnalysis.percentages.withPhone}%</div>
-                    <div>🏠 Address: {qualityAnalysis.percentages.withAddress}%</div>
-                    <div>🗺️ Boundary: {qualityAnalysis.percentages.withGeometry}%</div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px' }}>
-                  <h4>Quality Distribution</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '10px' }}>
-                    <div>✅ Excellent (80-100): {qualityAnalysis.qualityDistribution.excellent}</div>
-                    <div>👍 Good (60-79): {qualityAnalysis.qualityDistribution.good}</div>
-                    <div>⚠️ Fair (40-59): {qualityAnalysis.qualityDistribution.fair}</div>
-                    <div>❌ Poor (0-39): {qualityAnalysis.qualityDistribution.poor}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Filters */}
-            <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px' }}>
-              <h3>🔎 Quick Filters</h3>
-              <p>Find parks that need attention:</p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '15px' }}>
-                <button
-                  onClick={() => loadFilteredParks({ nameKeywords: ['office', 'facility', 'headquarters', 'admin'] })}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                  style={{ fontSize: '0.9rem' }}
-                >
-                  🏢 Find Offices/Facilities
-                </button>
-                <button
-                  onClick={() => loadFilteredParks({ maxAcres: 0.1 })}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                  style={{ fontSize: '0.9rem' }}
-                >
-                  📏 Very Small (&lt; 0.1 acres)
-                </button>
-                <button
-                  onClick={() => loadFilteredParks({ missingFields: ['description', 'website', 'phone'] })}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                  style={{ fontSize: '0.9rem' }}
-                >
-                  📋 Missing Info
-                </button>
-                <button
-                  onClick={() => loadFilteredParks({ missingFields: ['coordinates'] })}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                  style={{ fontSize: '0.9rem' }}
-                >
-                  📍 Missing Coordinates
-                </button>
-                <button
-                  onClick={() => loadFilteredParks({ missingFields: ['geometry'] })}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                  style={{ fontSize: '0.9rem' }}
-                >
-                  🗺️ Missing Boundaries
-                </button>
-                {qualityAnalysis && qualityAnalysis.likelyNonParks.length > 0 && (
-                  <button
-                    onClick={() => {
-                      const nonParkIds = qualityAnalysis.likelyNonParks.map(p => p.id);
-                      setFilteredParks(qualityAnalysis.likelyNonParks.map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        state: p.state,
-                        agency: p.agency,
-                        acres: p.acres,
-                        qualityScore: 0
-                      })));
-                      setSelectedParks(new Set(nonParkIds));
-                    }}
-                    disabled={qualityLoading}
-                    className="primary-button"
-                    style={{ fontSize: '0.9rem', background: '#ff6b6b' }}
-                  >
-                    🚫 Likely Non-Parks ({qualityAnalysis.likelyNonParks.length})
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Filtered Parks List */}
-            {filteredParks.length > 0 && (
-              <div style={{ marginTop: '30px' }}>
+            {/* Parks Table */}
+            {allParks.length > 0 && (
+              <div style={{ marginTop: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                  <h3>📋 Filtered Parks ({filteredParks.length})</h3>
-                  <div>
+                  <h3>📋 Parks ({filteredParks.length})</h3>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    {editedParks.size > 0 && (
+                      <>
+                        <button
+                          onClick={handleSaveEdits}
+                          disabled={saveLoading}
+                          className="primary-button"
+                          style={{ background: '#4CAF50', fontSize: '0.9rem', padding: '6px 12px' }}
+                        >
+                          {saveLoading ? '⏳ Saving...' : `💾 Save Changes (${editedParks.size})`}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditedParks(new Map());
+                            setEditingCell(null);
+                            setSaveStatus(null);
+                          }}
+                          disabled={saveLoading}
+                          className="primary-button"
+                          style={{ background: '#666', fontSize: '0.9rem', padding: '6px 12px' }}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                    {saveStatus && (
+                      <span style={{
+                        padding: '4px 12px',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem',
+                        background: saveStatus.type === 'success' ? '#d4edda' : '#f8d7da',
+                        color: saveStatus.type === 'success' ? '#155724' : '#721c24'
+                      }}>
+                        {saveStatus.message}
+                      </span>
+                    )}
                     <button
                       onClick={selectAllParks}
                       className="primary-button"
-                      style={{ marginRight: '10px', fontSize: '0.9rem' }}
+                      style={{ fontSize: '0.9rem', padding: '6px 12px' }}
+                      disabled={filteredParks.length === 0}
                     >
-                      {selectedParks.size === filteredParks.length ? 'Deselect All' : 'Select All'}
+                      {selectedParks.size === filteredParks.length && filteredParks.length > 0 ? 'Deselect All' : 'Select All'}
                     </button>
                     {selectedParks.size > 0 && (
                       <button
                         onClick={handleDeleteParks}
                         disabled={deleteLoading}
                         className="primary-button"
-                        style={{ background: '#ff6b6b', fontSize: '0.9rem' }}
+                        style={{ background: '#ff6b6b', fontSize: '0.9rem', padding: '6px 12px' }}
                       >
-                        {deleteLoading ? '⏳ Deleting...' : `🗑️ Delete Selected (${selectedParks.size})`}
+                        {deleteLoading ? '⏳ Deleting...' : `🗑️ Delete (${selectedParks.size})`}
                       </button>
                     )}
                   </div>
                 </div>
 
-                <div style={{ maxHeight: '500px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0 }}>
-                      <tr>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedParks.size === filteredParks.length && filteredParks.length > 0}
-                            onChange={selectAllParks}
-                          />
-                        </th>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Name</th>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>State</th>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Agency</th>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Acres</th>
-                        <th style={{ padding: '10px', textAlign: 'left', borderBottom: '2px solid #ddd' }}>Quality</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredParks.map(park => (
-                        <tr key={park.id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '10px' }}>
+                {filteredParks.length === 0 ? (
+                  <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px' }}>
+                    <p style={{ color: '#666' }}>No parks match your search criteria.</p>
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setFilteredParks(allParks);
+                      }}
+                      className="primary-button"
+                      style={{ marginTop: '15px', fontSize: '0.9rem' }}
+                    >
+                      Clear Search
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '600px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0, zIndex: 10 }}>
+                        <tr>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>
                             <input
                               type="checkbox"
-                              checked={selectedParks.has(park.id)}
-                              onChange={() => toggleParkSelection(park.id)}
+                              checked={selectedParks.size === filteredParks.length && filteredParks.length > 0}
+                              onChange={selectAllParks}
                             />
-                          </td>
-                          <td style={{ padding: '10px' }}>{park.name}</td>
-                          <td style={{ padding: '10px' }}>{park.state}</td>
-                          <td style={{ padding: '10px' }}>{park.agency}</td>
-                          <td style={{ padding: '10px' }}>{park.acres ? park.acres.toFixed(2) : 'N/A'}</td>
-                          <td style={{ padding: '10px' }}>
-                            <span style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              fontSize: '0.85rem',
-                              background: park.qualityScore >= 80 ? '#d4edda' :
-                                         park.qualityScore >= 60 ? '#d1ecf1' :
-                                         park.qualityScore >= 40 ? '#fff3cd' : '#f8d7da'
-                            }}>
-                              {park.qualityScore}/100
-                            </span>
-                          </td>
+                          </th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Name</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>State</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Agency</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Acres</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Quality</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {filteredParks.map((park, idx) => (
+                          <tr 
+                            key={park.id} 
+                            style={{ 
+                              borderBottom: '1px solid #eee',
+                              background: idx % 2 === 0 ? '#fff' : '#fafafa'
+                            }}
+                          >
+                            <td style={{ padding: '12px' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedParks.has(park.id)}
+                                onChange={() => toggleParkSelection(park.id)}
+                              />
+                            </td>
+                            <EditableCell
+                              parkId={park.id}
+                              field="name"
+                              value={park.name || 'Unnamed'}
+                              editedValue={editedParks.get(park.id)?.name}
+                              isEditing={editingCell?.parkId === park.id && editingCell?.field === 'name'}
+                              onStartEdit={() => setEditingCell({ parkId: park.id, field: 'name' })}
+                              onSave={(value) => {
+                                const updates = editedParks.get(park.id) || {};
+                                updates.name = value;
+                                setEditedParks(new Map(editedParks).set(park.id, updates));
+                                setEditingCell(null);
+                              }}
+                              onCancel={() => setEditingCell(null)}
+                            />
+                            <EditableCell
+                              parkId={park.id}
+                              field="state"
+                              value={park.state || 'N/A'}
+                              editedValue={editedParks.get(park.id)?.state}
+                              isEditing={editingCell?.parkId === park.id && editingCell?.field === 'state'}
+                              onStartEdit={() => setEditingCell({ parkId: park.id, field: 'state' })}
+                              onSave={(value) => {
+                                const updates = editedParks.get(park.id) || {};
+                                updates.state = value;
+                                setEditedParks(new Map(editedParks).set(park.id, updates));
+                                setEditingCell(null);
+                              }}
+                              onCancel={() => setEditingCell(null)}
+                            />
+                            <EditableCell
+                              parkId={park.id}
+                              field="agency"
+                              value={park.agency || 'N/A'}
+                              editedValue={editedParks.get(park.id)?.agency}
+                              isEditing={editingCell?.parkId === park.id && editingCell?.field === 'agency'}
+                              onStartEdit={() => setEditingCell({ parkId: park.id, field: 'agency' })}
+                              onSave={(value) => {
+                                const updates = editedParks.get(park.id) || {};
+                                updates.agency = value;
+                                setEditedParks(new Map(editedParks).set(park.id, updates));
+                                setEditingCell(null);
+                              }}
+                              onCancel={() => setEditingCell(null)}
+                            />
+                            <EditableCell
+                              parkId={park.id}
+                              field="acres"
+                              value={park.acres ? park.acres.toFixed(2) : 'N/A'}
+                              editedValue={editedParks.get(park.id)?.acres}
+                              isEditing={editingCell?.parkId === park.id && editingCell?.field === 'acres'}
+                              onStartEdit={() => setEditingCell({ parkId: park.id, field: 'acres' })}
+                              onSave={(value) => {
+                                const updates = editedParks.get(park.id) || {};
+                                const numValue = parseFloat(value);
+                                updates.acres = isNaN(numValue) ? null : numValue;
+                                setEditedParks(new Map(editedParks).set(park.id, updates));
+                                setEditingCell(null);
+                              }}
+                              onCancel={() => setEditingCell(null)}
+                              type="number"
+                            />
+                            <td style={{ padding: '12px' }}>
+                              <span style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.85rem',
+                                fontWeight: '500',
+                                background: park.qualityScore >= 80 ? '#d4edda' :
+                                           park.qualityScore >= 60 ? '#d1ecf1' :
+                                           park.qualityScore >= 40 ? '#fff3cd' : '#f8d7da',
+                                color: park.qualityScore >= 80 ? '#155724' :
+                                       park.qualityScore >= 60 ? '#0c5460' :
+                                       park.qualityScore >= 40 ? '#856404' : '#721c24'
+                              }}>
+                                {park.qualityScore || 0}/100
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {allParks.length === 0 && !qualityLoading && (
+              <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px', marginTop: '20px' }}>
+                <p style={{ color: '#666', marginBottom: '15px' }}>Click "📊 Load" to load parks for analysis</p>
+                <button
+                  onClick={loadQualityAnalysis}
+                  disabled={qualityLoading}
+                  className="primary-button"
+                >
+                  {qualityLoading ? '⏳ Loading...' : '📊 Load Parks'}
+                </button>
+              </div>
+            )}
+
+            {/* Quality Breakdown Table */}
+            {allParks.length > 0 && (
+              <div style={{ marginTop: '40px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <h3>📊 Quality Breakdown by Category</h3>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {['agency', 'state', 'city', 'county', 'category'].map(category => (
+                      <button
+                        key={category}
+                        onClick={() => loadQualityBreakdown(category)}
+                        disabled={breakdownLoading}
+                        className="primary-button"
+                        style={{
+                          fontSize: '0.85rem',
+                          padding: '6px 12px',
+                          background: breakdownGroupBy === category ? '#4CAF50' : '#666'
+                        }}
+                      >
+                        {category.charAt(0).toUpperCase() + category.slice(1)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {breakdownLoading && (
+                  <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <p>Loading breakdown...</p>
+                  </div>
+                )}
+
+                {qualityBreakdown && qualityBreakdown.length > 0 && !breakdownLoading && (
+                  <div style={{ maxHeight: '500px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0, zIndex: 10 }}>
+                        <tr>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>
+                            {breakdownGroupBy.charAt(0).toUpperCase() + breakdownGroupBy.slice(1)}
+                          </th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Parks</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Avg Score</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Completeness</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Weak Fields</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {qualityBreakdown.map((item, idx) => {
+                          const scoreColor = item.averageScore >= 80 ? '#d4edda' :
+                                            item.averageScore >= 60 ? '#d1ecf1' :
+                                            item.averageScore >= 40 ? '#fff3cd' : '#f8d7da'
+                          const textColor = item.averageScore >= 80 ? '#155724' :
+                                           item.averageScore >= 60 ? '#0c5460' :
+                                           item.averageScore >= 40 ? '#856404' : '#721c24'
+
+                          return (
+                            <tr
+                              key={item.group}
+                              style={{
+                                borderBottom: '1px solid #eee',
+                                background: idx % 2 === 0 ? '#fff' : '#fafafa'
+                              }}
+                            >
+                              <td style={{ padding: '12px', fontWeight: '500' }}>{item.group}</td>
+                              <td style={{ padding: '12px' }}>{item.count}</td>
+                              <td style={{ padding: '12px' }}>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: '500',
+                                  background: scoreColor,
+                                  color: textColor
+                                }}>
+                                  {item.averageScore.toFixed(1)}/100
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '0.9rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <div>📍 {item.completeness.coordinates}%</div>
+                                  <div>📝 {item.completeness.description}%</div>
+                                  <div>🌐 {item.completeness.website}%</div>
+                                  <div>🗺️ {item.completeness.geometry}%</div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px', fontSize: '0.85rem', color: '#666' }}>
+                                {item.weakFields.length > 0 ? (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {item.weakFields.map(field => (
+                                      <span
+                                        key={field}
+                                        style={{
+                                          padding: '2px 6px',
+                                          background: '#fee',
+                                          borderRadius: '3px',
+                                          fontSize: '0.75rem'
+                                        }}
+                                      >
+                                        {field}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: '#4CAF50' }}>✓ Good</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {qualityBreakdown && qualityBreakdown.length === 0 && !breakdownLoading && (
+                  <div style={{ padding: '20px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px' }}>
+                    <p style={{ color: '#666' }}>No breakdown data available</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1557,6 +1904,84 @@ function AdminPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+// EditableCell component for inline editing
+function EditableCell({ value, editedValue, isEditing, onStartEdit, onSave, onCancel }) {
+  const [localValue, setLocalValue] = useState(editedValue !== undefined ? editedValue : value);
+
+  useEffect(() => {
+    if (editedValue !== undefined) {
+      setLocalValue(editedValue);
+    } else {
+      setLocalValue(value);
+    }
+  }, [editedValue, value]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      onSave(localValue);
+    } else if (e.key === 'Escape') {
+      setLocalValue(editedValue !== undefined ? editedValue : value);
+      onCancel();
+    }
+  };
+
+  const handleBlur = () => {
+    if (localValue !== value && localValue !== editedValue) {
+      onSave(localValue);
+    } else {
+      onCancel();
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <td style={{ padding: '12px' }}>
+        <input
+          type="text"
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleBlur}
+          autoFocus
+          style={{
+            width: '100%',
+            padding: '4px 8px',
+            border: '2px solid #4CAF50',
+            borderRadius: '4px',
+            fontSize: '0.9rem'
+          }}
+        />
+      </td>
+    );
+  }
+
+  const hasChanges = editedValue !== undefined && editedValue !== value;
+  
+  return (
+    <td
+      style={{
+        padding: '12px',
+        cursor: 'pointer',
+        background: hasChanges ? '#fff9e6' : 'transparent',
+        position: 'relative'
+      }}
+      onClick={onStartEdit}
+      title="Click to edit"
+    >
+      {editedValue !== undefined ? editedValue : value}
+      {hasChanges && (
+        <span style={{
+          position: 'absolute',
+          right: '4px',
+          top: '4px',
+          fontSize: '0.7rem',
+          color: '#ff9800'
+        }}>●</span>
+      )}
+    </td>
   );
 }
 

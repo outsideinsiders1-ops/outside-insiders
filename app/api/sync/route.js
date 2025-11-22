@@ -4,6 +4,12 @@
  * Priority: 2
  */
 
+import { fetchAllNPSParks } from '../../../lib/utils/nps-api.js'
+import { fetchRecreationFacilities } from '../../../lib/utils/recreation-gov-api.js'
+import { mapNPSParksToSchema, mapRecreationGovFacilitiesToSchema } from '../../../lib/utils/api-field-mapper.js'
+import { insertOrUpdatePark } from '../../../lib/utils/db-operations.js'
+import { supabaseServer as createClient } from '../../../lib/supabase-server.js'
+
 export async function POST(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -13,64 +19,185 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}))
-    const { apiUrl, sourceType, apiKey } = body
+    const { sourceType, apiKey } = body
 
     // Validate required fields
-    if (!apiUrl) {
-      return Response.json({ 
-        success: false, 
-        error: 'API URL is required',
-        details: 'Please provide an apiUrl in the request body',
-        example: { apiUrl: 'https://api.nps.gov/api/v1/parks', sourceType: 'NPS' }
-      }, { status: 400, headers })
-    }
-
     if (!sourceType) {
       return Response.json({ 
         success: false, 
         error: 'Source type is required',
         details: 'Please specify the source type (e.g., "NPS", "Recreation.gov", "State Agency")',
-        example: { apiUrl: 'https://api.nps.gov/api/v1/parks', sourceType: 'NPS' }
+        example: { sourceType: 'NPS', apiKey: 'your-api-key' }
       }, { status: 400, headers })
     }
 
-    // Validate URL format
-    try {
-      new URL(apiUrl)
-    } catch {
+    // Get API key from request or environment
+    let effectiveApiKey = apiKey
+    if (sourceType === 'NPS' && !effectiveApiKey) {
+      effectiveApiKey = process.env.NPS_API_KEY || process.env.NEXT_PUBLIC_NPS_API_KEY
+    }
+    if (sourceType === 'Recreation.gov' && !effectiveApiKey) {
+      effectiveApiKey = process.env.RECREATION_GOV_API_KEY || process.env.NEXT_PUBLIC_RECREATION_GOV_API_KEY
+    }
+
+    if (!effectiveApiKey) {
       return Response.json({ 
         success: false, 
-        error: 'Invalid API URL format',
-        details: `"${apiUrl}" is not a valid URL`,
-        example: { apiUrl: 'https://api.nps.gov/api/v1/parks', sourceType: 'NPS' }
+        error: 'API key is required',
+        details: `Please provide an API key for ${sourceType}. You can provide it in the request body or set it as an environment variable.`,
+        example: { sourceType: 'NPS', apiKey: 'your-api-key' }
       }, { status: 400, headers })
     }
 
-    // TODO: Implement API synchronization
-    // This will:
-    // 1. Fetch data from the provided API URL
-    // 2. Use LLM to analyze and discover better endpoints if needed
-    // 3. Transform API response to park schema
-    // 4. Deduplicate and merge with existing parks
-    // 5. Store in database with appropriate priority
+    let parksFound = 0
+    let parksAdded = 0
+    let parksUpdated = 0
+    let parksSkipped = 0
+    const errors = []
+
+    const supabase = createClient
     
-    return Response.json({ 
-      success: false, 
-      message: 'API sync endpoint - coming soon',
-      received: {
-        apiUrl,
-        sourceType,
-        hasApiKey: !!apiKey
+    // Handle NPS API
+    if (sourceType === 'NPS' || sourceType === 'National Park Service') {
+      try {
+        console.log('Fetching parks from NPS API...')
+        
+        const npsParks = await fetchAllNPSParks(effectiveApiKey, {
+          onProgress: (progress) => {
+            console.log(`NPS API Progress: ${progress.fetched} parks fetched${progress.total !== 'unknown' ? ` of ${progress.total}` : ''}`)
+          }
+        })
+
+        parksFound = npsParks.length
+        console.log(`Found ${parksFound} parks from NPS API`)
+
+        // Map to our schema
+        const mappedParks = mapNPSParksToSchema(npsParks)
+
+        // Process each park
+        for (const park of mappedParks) {
+          try {
+            // Validate required fields
+            if (!park.name || !park.state) {
+              parksSkipped++
+              errors.push({
+                park: park.name || 'Unknown',
+                error: 'Missing required fields (name or state)'
+              })
+              continue
+            }
+
+            // Insert or update park
+            const result = await insertOrUpdatePark(supabase, park, { priority: 100 }) // API data has high priority
+
+            if (result.action === 'inserted') {
+              parksAdded++
+            } else if (result.action === 'updated') {
+              parksUpdated++
+            } else {
+              parksSkipped++
+            }
+          } catch (error) {
+            parksSkipped++
+            errors.push({
+              park: park.name || 'Unknown',
+              error: error.message || 'Failed to process park'
+            })
+            console.error(`Error processing park ${park.name}:`, error)
+          }
+        }
+
+      } catch (error) {
+        console.error('NPS API Error:', error)
+        return Response.json({
+          success: false,
+          error: 'Failed to sync NPS data',
+          message: error.message || 'An error occurred while fetching NPS data',
+          details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        }, { status: 500, headers })
+      }
+    }
+    // Handle Recreation.gov API
+    else if (sourceType === 'Recreation.gov' || sourceType === 'Recreation.gov API') {
+      try {
+        console.log('Fetching facilities from Recreation.gov API...')
+        
+        const facilities = await fetchRecreationFacilities(effectiveApiKey, {
+          onProgress: (progress) => {
+            console.log(`Recreation.gov API Progress: ${progress.fetched} facilities fetched`)
+          }
+        })
+
+        parksFound = facilities.length
+        console.log(`Found ${parksFound} facilities from Recreation.gov API`)
+
+        // Map to our schema
+        const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
+
+        // Process each park
+        for (const park of mappedParks) {
+          try {
+            // Validate required fields
+            if (!park.name) {
+              parksSkipped++
+              errors.push({
+                park: park.name || 'Unknown',
+                error: 'Missing required field (name)'
+              })
+              continue
+            }
+
+            // Insert or update park
+            const result = await insertOrUpdatePark(supabase, park, { priority: 100 })
+
+            if (result.action === 'inserted') {
+              parksAdded++
+            } else if (result.action === 'updated') {
+              parksUpdated++
+            } else {
+              parksSkipped++
+            }
+          } catch (error) {
+            parksSkipped++
+            errors.push({
+              park: park.name || 'Unknown',
+              error: error.message || 'Failed to process park'
+            })
+            console.error(`Error processing park ${park.name}:`, error)
+          }
+        }
+
+      } catch (error) {
+        console.error('Recreation.gov API Error:', error)
+        return Response.json({
+          success: false,
+          error: 'Failed to sync Recreation.gov data',
+          message: error.message || 'An error occurred while fetching Recreation.gov data',
+          details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        }, { status: 500, headers })
+      }
+    }
+    // Handle custom API URLs (future: LLM-powered analysis)
+    else {
+      return Response.json({
+        success: false,
+        error: 'Unsupported source type',
+        details: `Source type "${sourceType}" is not yet supported. Currently supported: "NPS", "Recreation.gov"`,
+        supportedTypes: ['NPS', 'National Park Service', 'Recreation.gov', 'Recreation.gov API']
+      }, { status: 400, headers })
+    }
+
+    return Response.json({
+      success: true,
+      message: 'Sync complete',
+      results: {
+        parksFound,
+        parksAdded,
+        parksUpdated,
+        parksSkipped
       },
-      note: 'This will handle NPS, Recreation.gov, and state park API syncs with LLM-powered intelligence',
-      nextSteps: [
-        'Fetch data from API URL',
-        'Use LLM to analyze API structure and suggest optimal endpoints',
-        'Transform API response to park schema',
-        'Deduplicate and merge with existing parks',
-        'Store in database with appropriate priority'
-      ]
-    }, { status: 501, headers }) // 501 Not Implemented
+      errors: errors.length > 0 ? errors : undefined
+    }, { status: 200, headers })
     
   } catch (error) {
     console.error('Sync API Error:', error)

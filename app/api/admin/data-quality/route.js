@@ -4,7 +4,7 @@
  */
 
 import { supabaseServer } from '../../../../lib/supabase-server.js'
-import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore } from '../../../../lib/utils/data-quality.js'
+import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore, calculateQualityBreakdown } from '../../../../lib/utils/data-quality.js'
 
 export async function GET(request) {
   const headers = {
@@ -55,37 +55,60 @@ export async function GET(request) {
       }, { status: 200, headers })
     }
 
-    // Perform analysis
-    const analysis = analyzeParksQuality(parks)
+      // Perform analysis
+      const analysis = analyzeParksQuality(parks)
 
-    // If action is 'filter', also return filtered list
-    if (action === 'filter') {
-      const filterCriteria = {
-        nameKeywords: searchParams.get('nameKeywords')?.split(',').filter(Boolean),
-        state: searchParams.get('filterState') || null,
-        agency: searchParams.get('filterAgency') || null,
-        maxAcres: searchParams.get('maxAcres') ? parseFloat(searchParams.get('maxAcres')) : undefined,
-        minAcres: searchParams.get('minAcres') ? parseFloat(searchParams.get('minAcres')) : undefined,
-        maxQualityScore: searchParams.get('maxQualityScore') ? parseInt(searchParams.get('maxQualityScore')) : undefined,
-        missingFields: searchParams.get('missingFields')?.split(',').filter(Boolean)
+      // If action is 'breakdown', return quality breakdown by category
+      if (action === 'breakdown') {
+        const groupBy = searchParams.get('groupBy') || 'agency'
+        const breakdown = calculateQualityBreakdown(parks, groupBy)
+
+        return Response.json({
+          success: true,
+          breakdown,
+          groupBy,
+          total: parks.length
+        }, { status: 200, headers })
       }
 
-      const filteredParks = filterParksForCleanup(parks, filterCriteria)
+      // If action is 'filter', also return filtered list
+      if (action === 'filter') {
+        const filterCriteria = {
+          nameKeywords: searchParams.get('nameKeywords')?.split(',').filter(Boolean),
+          state: searchParams.get('filterState') || null,
+          agency: searchParams.get('filterAgency') || null,
+          maxAcres: searchParams.get('maxAcres') ? parseFloat(searchParams.get('maxAcres')) : undefined,
+          minAcres: searchParams.get('minAcres') ? parseFloat(searchParams.get('minAcres')) : undefined,
+          maxQualityScore: searchParams.get('maxQualityScore') ? parseInt(searchParams.get('maxQualityScore')) : undefined,
+          missingFields: searchParams.get('missingFields')?.split(',').filter(Boolean)
+        }
 
-      return Response.json({
-        success: true,
-        analysis,
-        filteredParks: filteredParks.map(p => ({
-          id: p.id,
-          name: p.name,
-          state: p.state,
-          agency: p.agency,
-          acres: p.acres,
-          qualityScore: calculateDataQualityScore(p)
-        })),
-        filterCriteria
-      }, { status: 200, headers })
-    }
+        // If no filter criteria, return all parks
+        const hasCriteria = filterCriteria.nameKeywords?.length > 0 ||
+                           filterCriteria.maxAcres !== undefined ||
+                           filterCriteria.minAcres !== undefined ||
+                           filterCriteria.maxQualityScore !== undefined ||
+                           filterCriteria.missingFields?.length > 0
+
+        const filteredParks = hasCriteria 
+          ? filterParksForCleanup(parks, filterCriteria)
+          : parks
+
+        return Response.json({
+          success: true,
+          analysis,
+          filteredParks: filteredParks.map(p => ({
+            id: p.id,
+            name: p.name,
+            state: p.state,
+            agency: p.agency,
+            county: p.county || null,
+            acres: p.acres ? parseFloat(p.acres) : null,
+            qualityScore: calculateDataQualityScore(p)
+          })),
+          filterCriteria
+        }, { status: 200, headers })
+      }
 
     return Response.json({
       success: true,
