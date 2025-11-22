@@ -60,6 +60,8 @@ function AdminPanel() {
     agency: '',
     dataSource: ''
   });
+  const [agencyOptions, setAgencyOptions] = useState([]);
+  const [dataSourceOptions, setDataSourceOptions] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [allParks, setAllParks] = useState([]); // Store all parks for client-side search
   const [filteredParks, setFilteredParks] = useState([]);
@@ -78,7 +80,47 @@ function AdminPanel() {
   // ==================== LOAD GEOGRAPHIC DATA ====================
   useEffect(() => {
     loadStates();
+    loadAgencyOptions();
+    loadDataSourceOptions();
   }, []);
+
+  // Load agency options for dropdown
+  const loadAgencyOptions = async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('parks')
+        .select('agency')
+        .not('agency', 'is', null);
+      
+      if (error) throw error;
+      
+      // Get unique agencies
+      const uniqueAgencies = [...new Set(data.map(p => p.agency).filter(Boolean))].sort();
+      setAgencyOptions(uniqueAgencies);
+    } catch (error) {
+      console.error('Error loading agencies:', error);
+    }
+  };
+
+  // Load data source options for dropdown
+  const loadDataSourceOptions = async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('parks')
+        .select('data_source')
+        .not('data_source', 'is', null);
+      
+      if (error) throw error;
+      
+      // Get unique data sources
+      const uniqueSources = [...new Set(data.map(p => p.data_source).filter(Boolean))].sort();
+      setDataSourceOptions(uniqueSources);
+    } catch (error) {
+      console.error('Error loading data sources:', error);
+    }
+  };
 
   // Load all states
   const loadStates = async () => {
@@ -341,28 +383,54 @@ function AdminPanel() {
     setUploadResult(null);
 
     let filePath = null; // Track file path for cleanup
+    const fileSizeMB = uploadFile.size / 1024 / 1024;
+    const useChunkedUpload = fileSizeMB > 50; // Use chunked upload for files > 50MB
 
     try {
-      // Step 1: Upload file to Supabase Storage (bypasses Vercel 4.5MB limit)
+      // Step 1: Upload file to Supabase Storage (chunked if large)
       const fileName = `${Date.now()}-${uploadFile.name}`;
       filePath = `uploads/${fileName}`;
       
-      console.log(`Uploading ${uploadFile.name} (${(uploadFile.size / 1024 / 1024).toFixed(2)} MB) to Supabase Storage...`);
-      
-      const { error: uploadError } = await supabase.storage
-        .from('park-uploads')
-        .upload(filePath, uploadFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      if (useChunkedUpload) {
+        console.log(`Uploading ${fileSizeMB.toFixed(2)} MB file in chunks to Supabase Storage...`);
+        
+        // Import and use chunked upload utility
+        const { uploadFileInChunks } = await import('../../../lib/utils/chunked-upload.js');
+        
+        const result = await uploadFileInChunks(
+          supabase,
+          uploadFile,
+          'park-uploads',
+          filePath,
+          {
+            chunkSize: 20 * 1024 * 1024, // 20MB chunks
+            onProgress: (progress) => {
+              console.log(`Upload progress: ${progress.percentage}% (${progress.chunkNumber}/${progress.totalChunks} chunks, ${(progress.bytesUploaded / 1024 / 1024).toFixed(2)} MB)`);
+            }
+          }
+        );
 
-      if (uploadError) {
-        // If bucket doesn't exist, try to create it (this will fail if user doesn't have permissions)
-        if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('not found')) {
-          setUploadError('Storage bucket "park-uploads" not found. Please create it in Supabase Dashboard > Storage.');
-          return;
+        if (!result.success) {
+          throw new Error(result.error || 'Chunked upload failed');
         }
-        throw uploadError;
+      } else {
+        console.log(`Uploading ${fileSizeMB.toFixed(2)} MB to Supabase Storage...`);
+        
+        const { error: uploadError } = await supabase.storage
+          .from('park-uploads')
+          .upload(filePath, uploadFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          // If bucket doesn't exist, try to create it (this will fail if user doesn't have permissions)
+          if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('not found')) {
+            setUploadError('Storage bucket "park-uploads" not found. Please create it in Supabase Dashboard > Storage.');
+            return;
+          }
+          throw uploadError;
+        }
       }
 
       // Step 2: Get public URL or create signed URL
@@ -645,10 +713,42 @@ function AdminPanel() {
     setFilteredParks(filtered);
   };
 
-  const handleSearchChange = (e) => {
+  const handleSearchChange = async (e) => {
     const query = e.target.value;
     setSearchQuery(query);
-    applySearch(query);
+    
+    // If query is empty, clear results
+    if (!query.trim()) {
+      setFilteredParks([]);
+      setAllParks([]);
+      return;
+    }
+    
+    // Search on-demand - load parks matching search criteria
+    setQualityLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('action', 'filter');
+      // Add search as nameKeywords filter
+      params.append('nameKeywords', query);
+      
+      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const data = await response.json();
+      
+      if (data.success && data.filteredParks) {
+        setAllParks(data.filteredParks);
+        setFilteredParks(data.filteredParks);
+      } else {
+        setFilteredParks([]);
+        setAllParks([]);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      setFilteredParks([]);
+      setAllParks([]);
+    } finally {
+      setQualityLoading(false);
+    }
   };
 
   const loadQualityBreakdown = async (groupBy) => {
@@ -1399,7 +1499,7 @@ function AdminPanel() {
                   value={searchQuery}
                   onChange={handleSearchChange}
                   placeholder="Search by city, metro, county, state, federal agency, or any keyword..."
-                  disabled={qualityLoading || allParks.length === 0}
+                  disabled={qualityLoading}
                   style={{
                     width: '100%',
                     padding: '12px 45px 12px 15px',
@@ -1417,10 +1517,9 @@ function AdminPanel() {
                   fontSize: '1.2rem'
                 }}>🔍</span>
               </div>
-              {allParks.length > 0 && (
+              {searchQuery && (
                 <p style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
-                  Showing {filteredParks.length} of {allParks.length} parks
-                  {searchQuery && ` matching "${searchQuery}"`}
+                  {qualityLoading ? 'Searching...' : `Found ${filteredParks.length} park(s) matching "${searchQuery}"`}
                 </p>
               )}
             </div>
@@ -1445,26 +1544,32 @@ function AdminPanel() {
 
               <div className="form-group">
                 <label>Filter by Agency:</label>
-                <input
-                  type="text"
+                <select
                   value={qualityFilters.agency}
                   onChange={(e) => setQualityFilters({ ...qualityFilters, agency: e.target.value })}
-                  placeholder="e.g., NPS, BLM"
                   disabled={qualityLoading}
                   style={{ width: '100%', padding: '8px' }}
-                />
+                >
+                  <option value="">All Agencies</option>
+                  {agencyOptions.map(agency => (
+                    <option key={agency} value={agency}>{agency}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
                 <label>Filter by Data Source:</label>
-                <input
-                  type="text"
+                <select
                   value={qualityFilters.dataSource}
                   onChange={(e) => setQualityFilters({ ...qualityFilters, dataSource: e.target.value })}
-                  placeholder="e.g., PAD-US, ParkServe"
                   disabled={qualityLoading}
                   style={{ width: '100%', padding: '8px' }}
-                />
+                >
+                  <option value="">All Data Sources</option>
+                  {dataSourceOptions.map(source => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
@@ -1683,40 +1788,84 @@ function AdminPanel() {
               </div>
             )}
 
-            {allParks.length === 0 && !qualityLoading && (
+            {!searchQuery && filteredParks.length === 0 && !qualityLoading && (
               <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px', marginTop: '20px' }}>
-                <p style={{ color: '#666', marginBottom: '15px' }}>Click "📊 Load" to load parks for analysis</p>
-                <button
-                  onClick={loadQualityAnalysis}
-                  disabled={qualityLoading}
-                  className="primary-button"
-                >
-                  {qualityLoading ? '⏳ Loading...' : '📊 Load Parks'}
-                </button>
+                <p style={{ color: '#666', marginBottom: '15px' }}>Enter a search term above to find parks</p>
+              </div>
+            )}
+            
+            {searchQuery && filteredParks.length === 0 && !qualityLoading && (
+              <div style={{ padding: '40px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px', marginTop: '20px' }}>
+                <p style={{ color: '#666' }}>No parks found matching "{searchQuery}"</p>
               </div>
             )}
 
-            {/* Quality Breakdown Table */}
-            {allParks.length > 0 && (
+            {/* Quality Breakdown Matrix Table */}
+            {filteredParks.length > 0 && (
               <div style={{ marginTop: '40px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                  <h3>📊 Quality Breakdown by Category</h3>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {['agency', 'state', 'city', 'county', 'category'].map(category => (
-                      <button
-                        key={category}
-                        onClick={() => loadQualityBreakdown(category)}
-                        disabled={breakdownLoading}
-                        className="primary-button"
-                        style={{
-                          fontSize: '0.85rem',
-                          padding: '6px 12px',
-                          background: breakdownGroupBy === category ? '#4CAF50' : '#666'
-                        }}
-                      >
-                        {category.charAt(0).toUpperCase() + category.slice(1)}
-                      </button>
-                    ))}
+                  <h3>📊 Quality Breakdown Matrix</h3>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => loadQualityBreakdown('state')}
+                      disabled={breakdownLoading}
+                      className="primary-button"
+                      style={{
+                        fontSize: '0.85rem',
+                        padding: '6px 12px',
+                        background: breakdownGroupBy === 'state' ? '#4CAF50' : '#666'
+                      }}
+                    >
+                      State Parks
+                    </button>
+                    <button
+                      onClick={() => loadQualityBreakdown('agency')}
+                      disabled={breakdownLoading}
+                      className="primary-button"
+                      style={{
+                        fontSize: '0.85rem',
+                        padding: '6px 12px',
+                        background: breakdownGroupBy === 'agency' ? '#4CAF50' : '#666'
+                      }}
+                    >
+                      Federal Agencies
+                    </button>
+                    <button
+                      onClick={() => loadQualityBreakdown('agency')}
+                      disabled={breakdownLoading}
+                      className="primary-button"
+                      style={{
+                        fontSize: '0.85rem',
+                        padding: '6px 12px',
+                        background: breakdownGroupBy === 'agency' ? '#4CAF50' : '#666'
+                      }}
+                    >
+                      All Agencies
+                    </button>
+                    <button
+                      onClick={() => loadQualityBreakdown('county')}
+                      disabled={breakdownLoading}
+                      className="primary-button"
+                      style={{
+                        fontSize: '0.85rem',
+                        padding: '6px 12px',
+                        background: breakdownGroupBy === 'county' ? '#4CAF50' : '#666'
+                      }}
+                    >
+                      Counties
+                    </button>
+                    <button
+                      onClick={() => loadQualityBreakdown('city')}
+                      disabled={breakdownLoading}
+                      className="primary-button"
+                      style={{
+                        fontSize: '0.85rem',
+                        padding: '6px 12px',
+                        background: breakdownGroupBy === 'city' ? '#4CAF50' : '#666'
+                      }}
+                    >
+                      Cities
+                    </button>
                   </div>
                 </div>
 
@@ -1726,91 +1875,67 @@ function AdminPanel() {
                   </div>
                 )}
 
-                {qualityBreakdown && qualityBreakdown.length > 0 && !breakdownLoading && (
-                  <div style={{ maxHeight: '500px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
+                {qualityBreakdown && qualityBreakdown.rows && qualityBreakdown.rows.length > 0 && !breakdownLoading && (
+                  <div style={{ maxHeight: '600px', overflow: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0, zIndex: 10 }}>
                         <tr>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', borderRight: '2px solid #ddd', fontWeight: '600', position: 'sticky', left: 0, background: '#f5f5f5' }}>
                             {breakdownGroupBy.charAt(0).toUpperCase() + breakdownGroupBy.slice(1)}
                           </th>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Parks</th>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Avg Score</th>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Completeness</th>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Weak Fields</th>
+                          {qualityBreakdown.columns && qualityBreakdown.columns.map(column => (
+                            <th key={column} style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #ddd', fontWeight: '600', minWidth: '100px' }}>
+                              {column.charAt(0).toUpperCase() + column.slice(1)}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {qualityBreakdown.map((item, idx) => {
-                          const scoreColor = item.averageScore >= 80 ? '#d4edda' :
-                                            item.averageScore >= 60 ? '#d1ecf1' :
-                                            item.averageScore >= 40 ? '#fff3cd' : '#f8d7da'
-                          const textColor = item.averageScore >= 80 ? '#155724' :
-                                           item.averageScore >= 60 ? '#0c5460' :
-                                           item.averageScore >= 40 ? '#856404' : '#721c24'
-
-                          return (
-                            <tr
-                              key={item.group}
-                              style={{
-                                borderBottom: '1px solid #eee',
-                                background: idx % 2 === 0 ? '#fff' : '#fafafa'
-                              }}
-                            >
-                              <td style={{ padding: '12px', fontWeight: '500' }}>{item.group}</td>
-                              <td style={{ padding: '12px' }}>{item.count}</td>
-                              <td style={{ padding: '12px' }}>
-                                <span style={{
-                                  padding: '4px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '0.85rem',
-                                  fontWeight: '500',
-                                  background: scoreColor,
-                                  color: textColor
-                                }}>
-                                  {item.averageScore.toFixed(1)}/100
-                                </span>
-                              </td>
-                              <td style={{ padding: '12px', fontSize: '0.9rem' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <div>📍 {item.completeness.coordinates}%</div>
-                                  <div>📝 {item.completeness.description}%</div>
-                                  <div>🌐 {item.completeness.website}%</div>
-                                  <div>🗺️ {item.completeness.geometry}%</div>
-                                </div>
-                              </td>
-                              <td style={{ padding: '12px', fontSize: '0.85rem', color: '#666' }}>
-                                {item.weakFields.length > 0 ? (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                    {item.weakFields.map(field => (
-                                      <span
-                                        key={field}
-                                        style={{
-                                          padding: '2px 6px',
-                                          background: '#fee',
-                                          borderRadius: '3px',
-                                          fontSize: '0.75rem'
-                                        }}
-                                      >
-                                        {field}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span style={{ color: '#4CAF50' }}>✓ Good</span>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
+                        {qualityBreakdown.rows.map((row, idx) => (
+                          <tr
+                            key={row}
+                            style={{
+                              borderBottom: '1px solid #eee',
+                              background: idx % 2 === 0 ? '#fff' : '#fafafa'
+                            }}
+                          >
+                            <td style={{ padding: '12px', fontWeight: '500', borderRight: '2px solid #ddd', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                              {row}
+                            </td>
+                            {qualityBreakdown.columns.map(column => {
+                              const score = qualityBreakdown.matrix[row]?.[column] || 0
+                              const scoreColor = score >= 80 ? '#d4edda' :
+                                                score >= 60 ? '#d1ecf1' :
+                                                score >= 40 ? '#fff3cd' : '#f8d7da'
+                              const textColor = score >= 80 ? '#155724' :
+                                               score >= 60 ? '#0c5460' :
+                                               score >= 40 ? '#856404' : '#721c24'
+                              
+                              return (
+                                <td key={column} style={{ padding: '12px', textAlign: 'center' }}>
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '500',
+                                    background: scoreColor,
+                                    color: textColor
+                                  }}>
+                                    {score.toFixed(0)}
+                                  </span>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                 )}
 
-                {qualityBreakdown && qualityBreakdown.length === 0 && !breakdownLoading && (
+                {qualityBreakdown && (!qualityBreakdown.rows || qualityBreakdown.rows.length === 0) && !breakdownLoading && (
                   <div style={{ padding: '20px', textAlign: 'center', background: '#f9f9f9', borderRadius: '8px' }}>
-                    <p style={{ color: '#666' }}>No breakdown data available</p>
+                    <p style={{ color: '#666' }}>No breakdown data available. Click a filter button above to load data.</p>
                   </div>
                 )}
               </div>

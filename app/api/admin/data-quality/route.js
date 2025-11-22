@@ -4,7 +4,7 @@
  */
 
 import { supabaseServer } from '../../../../lib/supabase-server.js'
-import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore, calculateQualityBreakdown } from '../../../../lib/utils/data-quality.js'
+import { analyzeParksQuality, filterParksForCleanup, calculateDataQualityScore, calculateQualityBreakdown, calculateQualityBreakdownMatrix } from '../../../../lib/utils/data-quality.js'
 
 export async function GET(request) {
   const headers = {
@@ -61,14 +61,30 @@ export async function GET(request) {
       // If action is 'breakdown', return quality breakdown by category
       if (action === 'breakdown') {
         const groupBy = searchParams.get('groupBy') || 'agency'
-        const breakdown = calculateQualityBreakdown(parks, groupBy)
+        const matrixFormat = searchParams.get('matrix') === 'true'
+        
+        if (matrixFormat) {
+          // Return matrix format (rows × columns = quality scores)
+          const fields = searchParams.get('fields')?.split(',') || ['name', 'description', 'website', 'phone', 'address']
+          const matrix = calculateQualityBreakdownMatrix(parks, groupBy, fields)
+          
+          return Response.json({
+            success: true,
+            matrix,
+            groupBy,
+            total: parks.length
+          }, { status: 200, headers })
+        } else {
+          // Return simple breakdown format
+          const breakdown = calculateQualityBreakdown(parks, groupBy)
 
-        return Response.json({
-          success: true,
-          breakdown,
-          groupBy,
-          total: parks.length
-        }, { status: 200, headers })
+          return Response.json({
+            success: true,
+            breakdown,
+            groupBy,
+            total: parks.length
+          }, { status: 200, headers })
+        }
       }
 
       // If action is 'filter', also return filtered list

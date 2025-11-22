@@ -11,6 +11,9 @@ import { mapPropertiesToParkSchema, logUnmappedProperties } from '../../../lib/u
 import { geojsonToWKT, validateGeometry as validateWKT } from '../../../lib/utils/geometry-wkt.js'
 import { validateGeometry, fixGeometry } from '../../../lib/utils/geometry-validator.js'
 import { normalizeParkName } from '../../../lib/utils/db-operations.js'
+// Chunked upload support - will be used when implementing chunk reassembly on server
+// import { downloadAndReassembleChunks, cleanupChunks } from '../../../lib/utils/chunked-upload.js'
+// import { createClient } from '@supabase/supabase-js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
