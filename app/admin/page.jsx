@@ -672,7 +672,20 @@ function AdminPanel() {
       params.append('action', 'filter');
       // Get all parks (no filter criteria - load everything for Excel-like experience)
       
-      const response = await fetch(`/api/admin/data-quality?${params.toString()}`);
+      const url = `/api/admin/data-quality?${params.toString()}`;
+      console.log('Loading parks from:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
 
       if (data.success && data.filteredParks) {

@@ -20,6 +20,15 @@ export async function GET(request) {
     const dataSource = searchParams.get('data_source')
     const action = searchParams.get('action') // 'analyze' or 'filter'
 
+    // Check if Supabase is initialized
+    if (!supabaseServer) {
+      return Response.json({
+        success: false,
+        error: 'Database not initialized',
+        details: 'Supabase client is not available. Please check environment variables.'
+      }, { status: 500, headers })
+    }
+
     // Build query
     let query = supabaseServer
       .from('parks')
