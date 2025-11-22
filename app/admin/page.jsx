@@ -1271,8 +1271,10 @@ function AdminPanel() {
             </p>
 
             <div className="form-group">
-              <label>1️⃣ Select Source Type:</label>
+              <label htmlFor="sync-source-type">1️⃣ Select Source Type:</label>
               <select 
+                id="sync-source-type"
+                name="syncSourceType"
                 value={syncSourceType} 
                 onChange={(e) => setSyncSourceType(e.target.value)}
                 disabled={syncLoading}
@@ -1287,8 +1289,10 @@ function AdminPanel() {
             </div>
 
             <div className="form-group">
-              <label>2️⃣ Enter API URL:</label>
+              <label htmlFor="sync-api-url">2️⃣ Enter API URL:</label>
               <input
+                id="sync-api-url"
+                name="syncApiUrl"
                 type="url"
                 value={syncApiUrl}
                 onChange={(e) => {
@@ -1308,8 +1312,10 @@ function AdminPanel() {
             </div>
 
             <div className="form-group">
-              <label>3️⃣ API Key (if required):</label>
+              <label htmlFor="sync-api-key">3️⃣ API Key (if required):</label>
               <input
+                id="sync-api-key"
+                name="syncApiKey"
                 type="password"
                 value={syncApiKey}
                 onChange={(e) => setSyncApiKey(e.target.value)}
