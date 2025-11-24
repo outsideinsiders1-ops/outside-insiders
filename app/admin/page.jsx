@@ -52,6 +52,14 @@ function AdminPanel() {
   const [syncError, setSyncError] = useState(null);
 
   // Data Quality state
+  
+  // Geocode Missing Coordinates state
+  const [geocodeLoading, setGeocodeLoading] = useState(false)
+  const [geocodeResult, setGeocodeResult] = useState(null)
+  const [geocodeError, setGeocodeError] = useState(null)
+  const [geocodeLimit, setGeocodeLimit] = useState(50)
+  const [geocodeState, setGeocodeState] = useState('')
+  const [geocodeUseGeometry, setGeocodeUseGeometry] = useState(true)
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityAnalysis, setQualityAnalysis] = useState(null);
   const [qualityError, setQualityError] = useState(null);
@@ -1365,6 +1373,101 @@ function AdminPanel() {
                 <li><strong>Error Recovery:</strong> Handles API errors gracefully and provides detailed feedback</li>
               </ul>
             </div>
+          </div>
+        )}
+
+        {/* ==================== GEOCODE MISSING COORDINATES TAB ==================== */}
+        {activeTab === 'geocode' && (
+          <div className="section">
+            <h2>Geocode Missing Coordinates</h2>
+            <p className="section-description">
+              Find parks missing latitude/longitude coordinates and geocode them using Mapbox API or calculate from geometry.
+            </p>
+
+            <div className="form-group">
+              <label>Process Options:</label>
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    checked={geocodeUseGeometry}
+                    onChange={(e) => setGeocodeUseGeometry(e.target.checked)}
+                  />
+                  Calculate centroids from geometry first (faster, free)
+                </label>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label>Limit (parks per batch):</label>
+                <input
+                  type="number"
+                  value={geocodeLimit}
+                  onChange={(e) => setGeocodeLimit(parseInt(e.target.value) || 50)}
+                  min="1"
+                  max="100"
+                  style={{ width: '100px', padding: '8px' }}
+                />
+                <span style={{ marginLeft: '10px', color: '#666' }}>Process 50 parks at a time recommended</span>
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label>Filter by State (optional):</label>
+                <select
+                  value={geocodeState}
+                  onChange={(e) => setGeocodeState(e.target.value)}
+                  style={{ width: '200px', padding: '8px' }}
+                >
+                  <option value="">All States</option>
+                  {states.map(state => (
+                    <option key={state.id} value={state.state_code}>{state.state_code} - {state.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={handleGeocode}
+              disabled={geocodeLoading}
+              style={{
+                padding: '12px 24px',
+                fontSize: '16px',
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: geocodeLoading ? 'not-allowed' : 'pointer',
+                opacity: geocodeLoading ? 0.6 : 1
+              }}
+            >
+              {geocodeLoading ? 'Processing...' : 'Start Geocoding'}
+            </button>
+
+            {geocodeResult && (
+              <div className="success-message" style={{ marginTop: '20px', padding: '20px', background: '#f0f7ed', borderRadius: '8px' }}>
+                <h3 style={{ marginTop: 0 }}>✅ Geocoding Complete!</h3>
+                <ul style={{ textAlign: 'left', display: 'inline-block' }}>
+                  <li><strong>Parks Processed:</strong> {geocodeResult.parksProcessed || 0}</li>
+                  <li><strong>Parks Fixed:</strong> {geocodeResult.parksFixed || 0}</li>
+                  <li><strong>Parks Failed:</strong> {geocodeResult.parksFailed || 0}</li>
+                  <li><strong>Parks Skipped:</strong> {geocodeResult.parksSkipped || 0}</li>
+                </ul>
+                {geocodeResult.errors && geocodeResult.errors.length > 0 && (
+                  <div style={{ marginTop: '15px', padding: '10px', background: '#fff3cd', borderRadius: '5px' }}>
+                    <strong>Errors:</strong>
+                    <ul style={{ textAlign: 'left', marginTop: '5px' }}>
+                      {geocodeResult.errors.slice(0, 5).map((err, i) => (
+                        <li key={i}>{err.park}: {err.error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {geocodeError && (
+              <div className="error-message" style={{ marginTop: '20px', padding: '20px', background: '#fee', borderRadius: '8px' }}>
+                <h3 style={{ marginTop: 0 }}>❌ Error:</h3>
+                <pre style={{ whiteSpace: 'pre-wrap', textAlign: 'left' }}>{geocodeError}</pre>
+              </div>
+            )}
           </div>
         )}
 
