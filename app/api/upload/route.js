@@ -252,22 +252,27 @@ export async function POST(request) {
         mappedProps.state = defaultState
       }
       
+      // Normalize state to state code for consistency (e.g., "Georgia" -> "GA")
+      if (mappedProps.state) {
+        mappedProps.state = normalizeStateToCode(mappedProps.state)
+      }
+      
       // CRITICAL: Derive agency from sourceType if not found in file
       // Agency is REQUIRED (NOT NULL) in database schema
       if (!mappedProps.agency || mappedProps.agency === '') {
-        const stateName = mappedProps.state || defaultState || ''
-        if (sourceType && stateName) {
-          // Derive agency name from sourceType + state
+        const stateCode = mappedProps.state || normalizeStateToCode(defaultState) || ''
+        if (sourceType && stateCode) {
+          // Derive agency name from sourceType + state code
           const agencyMap = {
-            'State Agency': `${stateName} State Parks`,
-            'Public State': `${stateName} State Parks`,
-            'County Agency': `${stateName} County Parks`,
-            'City Agency': `${stateName} City Parks`,
+            'State Agency': `${stateCode} State Parks`,
+            'Public State': `${stateCode} State Parks`,
+            'County Agency': `${stateCode} County Parks`,
+            'City Agency': `${stateCode} City Parks`,
             'Public Federal': 'Federal Agency',
             'Federal Agency': 'Federal Agency'
           }
           mappedProps.agency = agencyMap[sourceType] || sourceType
-          console.log(`Derived agency "${mappedProps.agency}" from sourceType "${sourceType}" and state "${stateName}"`)
+          console.log(`Derived agency "${mappedProps.agency}" from sourceType "${sourceType}" and state "${stateCode}"`)
         } else {
           // Fallback to sourceType if no state
           mappedProps.agency = sourceType || 'Unknown Agency'
