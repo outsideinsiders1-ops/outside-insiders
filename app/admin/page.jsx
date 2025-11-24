@@ -1515,12 +1515,13 @@ function AdminPanel() {
                   value={qualityFilters.state}
                   onChange={(e) => {
                     setQualityFilters({ ...qualityFilters, state: e.target.value });
+                    setTimeout(() => applyFilters(), 0);
                   }}
                   disabled={qualityLoading}
                 >
                   <option value="">All States</option>
                   {states.map(state => (
-                    <option key={state.id} value={state.name}>{state.name}</option>
+                    <option key={state.id} value={state.state_code}>{state.state_code} - {state.name}</option>
                   ))}
                 </select>
               </div>
