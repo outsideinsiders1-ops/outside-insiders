@@ -544,6 +544,40 @@ function AdminPanel() {
     }
   };
 
+  // ==================== GEOCODE HANDLER ====================
+  const handleGeocode = async () => {
+    setGeocodeLoading(true)
+    setGeocodeResult(null)
+    setGeocodeError(null)
+
+    try {
+      const response = await fetch('/api/admin/geocode', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          limit: geocodeLimit,
+          state: geocodeState || null,
+          useGeometry: geocodeUseGeometry,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Geocoding failed')
+      }
+
+      setGeocodeResult(data)
+    } catch (err) {
+      console.error('Geocoding error:', err)
+      setGeocodeError(err.message || 'Failed to geocode parks')
+    } finally {
+      setGeocodeLoading(false)
+    }
+  }
+
   // ==================== API SYNC HANDLER ====================
   const handleApiSync = async () => {
     if (!syncSourceType) {
