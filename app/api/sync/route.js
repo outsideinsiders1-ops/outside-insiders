@@ -223,9 +223,14 @@ export async function POST(request) {
       }, { status: 400, headers })
     }
 
+    // Return response with both formats for compatibility
     return Response.json({
       success: true,
       message: 'Sync complete',
+      parksFound,
+      parksAdded,
+      parksUpdated,
+      parksSkipped,
       results: {
         parksFound,
         parksAdded,
