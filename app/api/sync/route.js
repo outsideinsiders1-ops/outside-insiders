@@ -63,37 +63,48 @@ export async function POST(request) {
       }, { status: 500, headers })
     }
     
-    // Handle NPS API
-    if (sourceType === 'NPS' || sourceType === 'National Park Service') {
-      try {
-        console.log('Fetching parks from NPS API...')
-        console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
-        
-        const npsParks = await fetchAllNPSParks(effectiveApiKey, {
-          onProgress: (progress) => {
-            console.log(`NPS API Progress: ${progress.fetched} parks fetched${progress.total !== 'unknown' ? ` of ${progress.total}` : ''}`)
-          }
-        })
+        // Handle NPS API
+        if (sourceType === 'NPS' || sourceType === 'National Park Service') {
+          try {
+            console.log('=== NPS API SYNC START ===')
+            console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
+            console.log('API Key length:', effectiveApiKey?.length || 0)
+            console.log('API Key preview:', effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : 'None')
+            
+            const npsParks = await fetchAllNPSParks(effectiveApiKey, {
+              onProgress: (progress) => {
+                console.log(`NPS API Progress: ${progress.fetched} parks fetched${progress.total !== 'unknown' ? ` of ${progress.total}` : ''}`)
+              }
+            })
 
-        parksFound = npsParks.length
-        console.log(`Found ${parksFound} parks from NPS API`)
+            parksFound = npsParks.length
+            console.log(`=== NPS API RESPONSE ===`)
+            console.log(`Total parks fetched: ${parksFound}`)
+            console.log(`First park sample:`, npsParks[0] ? {
+              fullName: npsParks[0].fullName,
+              parkCode: npsParks[0].parkCode,
+              states: npsParks[0].states
+            } : 'No parks')
 
-        if (parksFound === 0) {
-          console.error('NPS API returned 0 parks. This could indicate:')
-          console.error('1. Invalid API key')
-          console.error('2. API rate limiting')
-          console.error('3. Network issue')
-          return Response.json({
-            success: false,
-            error: 'No parks found',
-            message: 'NPS API returned 0 parks. Please check your API key and try again.',
-            details: 'This could indicate an authentication issue or the API returned no results.',
-            debug: {
-              apiKeyProvided: !!effectiveApiKey,
-              apiKeyLength: effectiveApiKey?.length || 0
+            if (parksFound === 0) {
+              console.error('=== NPS API ERROR: 0 PARKS RETURNED ===')
+              console.error('This could indicate:')
+              console.error('1. Invalid API key')
+              console.error('2. API rate limiting')
+              console.error('3. Network issue')
+              console.error('4. API endpoint changed')
+              return Response.json({
+                success: false,
+                error: 'No parks found',
+                message: 'NPS API returned 0 parks. Please check your API key and try again.',
+                details: 'This could indicate an authentication issue or the API returned no results.',
+                debug: {
+                  apiKeyProvided: !!effectiveApiKey,
+                  apiKeyLength: effectiveApiKey?.length || 0,
+                  apiKeyPreview: effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : null
+                }
+              }, { status: 400, headers })
             }
-          }, { status: 400, headers })
-        }
 
         // Map to our schema
         const mappedParks = mapNPSParksToSchema(npsParks)

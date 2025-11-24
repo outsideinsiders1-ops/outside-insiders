@@ -570,6 +570,7 @@ function AdminPanel() {
       console.log('API sync response status:', response.status);
 
       const data = await response.json();
+      console.log('API sync response data:', JSON.stringify(data, null, 2));
 
       // Always clear previous results first
       setSyncResult(null);
@@ -615,7 +616,7 @@ function AdminPanel() {
       if (data.success === true) {
         // Handle both old format (results object) and new format (direct properties)
         const result = data.results || data;
-        setSyncResult({
+        const syncResultData = {
           success: true,
           message: data.message || 'Sync complete',
           parksFound: result.parksFound || 0,
@@ -623,10 +624,21 @@ function AdminPanel() {
           parksUpdated: result.parksUpdated || 0,
           parksSkipped: result.parksSkipped || 0,
           errors: data.errors
-        });
-        console.log('API Sync result:', result);
+        };
+        console.log('API Sync result (parsed):', syncResultData);
+        console.log('Parks Found:', syncResultData.parksFound);
+        console.log('Parks Added:', syncResultData.parksAdded);
+        console.log('Parks Updated:', syncResultData.parksUpdated);
+        
+        setSyncResult(syncResultData);
+        
+        // If 0 parks found, show as warning
+        if (syncResultData.parksFound === 0) {
+          setSyncError('No parks were found by the API. This could indicate:\n- Invalid API key\n- API rate limiting\n- Network issue\n\nCheck the console for detailed logs.');
+        }
       } else {
         // Even if response.ok, if success is false, show as error
+        console.error('API Sync failed:', data);
         setSyncError(data.error || data.message || 'Sync failed');
       }
     } catch (err) {
