@@ -54,13 +54,14 @@ export async function POST(request) {
           console.log('Detected chunked upload, reassembling chunks...')
           console.log('File path:', filePath)
           
-          // Extract base path (remove .chunk.X suffix if present)
-          const basePath = filePath.replace(/\.chunk\.\d+$/, '')
+          // Extract base path (filePath is like "uploads/1234567890-file.zip")
+          // Chunks will be "uploads/1234567890-file.zip.chunk.0", etc.
+          const basePath = filePath // No need to remove .chunk.X since filePath doesn't have it
           const pathParts = basePath.split('/')
           const directory = pathParts.slice(0, -1).join('/') || 'uploads'
           const baseFileName = pathParts[pathParts.length - 1]
           
-          console.log(`Listing files in directory: ${directory}, looking for: ${baseFileName}`)
+          console.log(`Listing files in directory: ${directory}, looking for chunks of: ${baseFileName}`)
           
           // List all files in the directory to find chunks
           const { data: files, error: listError } = await supabaseServer.storage
@@ -74,12 +75,19 @@ export async function POST(request) {
           
           console.log(`Found ${files?.length || 0} files in directory`)
           
-          // Count chunks that match our base filename
+          // Count chunks that match our base filename (chunks are named: baseFileName.chunk.0, baseFileName.chunk.1, etc.)
           const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
           const chunkFiles = (files || []).filter(f => chunkPattern.test(f.name))
           const totalChunks = chunkFiles.length
           
-          console.log(`Found ${totalChunks} chunks matching pattern`)
+          console.log(`Found ${totalChunks} chunks matching pattern for ${baseFileName}`)
+          
+          // Sort chunks by number to ensure correct order
+          chunkFiles.sort((a, b) => {
+            const aNum = parseInt(a.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
+            const bNum = parseInt(b.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
+            return aNum - bNum
+          })
           
           if (totalChunks === 0) {
             // Fallback: try to download as regular file
@@ -96,13 +104,35 @@ export async function POST(request) {
           } else {
             console.log(`Reassembling ${totalChunks} chunks from base path: ${basePath}`)
             
-            // Reassemble chunks
-            const blob = await downloadAndReassembleChunks(
-              supabaseServer,
-              'park-uploads',
-              basePath,
-              totalChunks
-            )
+            // Reassemble chunks using the sorted chunk files
+            // We'll download chunks in order based on the sorted list
+            const chunks = []
+            for (let i = 0; i < totalChunks; i++) {
+              const chunkPath = `${basePath}.chunk.${i}`
+              console.log(`Downloading chunk ${i + 1}/${totalChunks}: ${chunkPath}`)
+              
+              const { data, error } = await supabaseServer.storage
+                .from('park-uploads')
+                .download(chunkPath)
+              
+              if (error) {
+                throw new Error(`Failed to download chunk ${i}: ${error.message}`)
+              }
+              
+              chunks.push(await data.arrayBuffer())
+            }
+            
+            // Combine chunks into single Blob
+            const totalSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+            const combined = new Uint8Array(totalSize)
+            let offset = 0
+            
+            for (const chunk of chunks) {
+              combined.set(new Uint8Array(chunk), offset)
+              offset += chunk.byteLength
+            }
+            
+            const blob = new Blob([combined])
             
             // Clean up chunks after reassembly
             await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)

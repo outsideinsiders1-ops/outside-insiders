@@ -613,7 +613,18 @@ function AdminPanel() {
 
       // Only show success if response.ok AND data.success is true
       if (data.success === true) {
-        setSyncResult(data);
+        // Handle both old format (results object) and new format (direct properties)
+        const result = data.results || data;
+        setSyncResult({
+          success: true,
+          message: data.message || 'Sync complete',
+          parksFound: result.parksFound || 0,
+          parksAdded: result.parksAdded || 0,
+          parksUpdated: result.parksUpdated || 0,
+          parksSkipped: result.parksSkipped || 0,
+          errors: data.errors
+        });
+        console.log('API Sync result:', result);
       } else {
         // Even if response.ok, if success is false, show as error
         setSyncError(data.error || data.message || 'Sync failed');
@@ -740,9 +751,8 @@ function AdminPanel() {
     
     // Apply dropdown filters
     if (qualityFilters.state) {
-      // Find state code from state name for matching
-      const selectedState = states.find(s => s.name === qualityFilters.state);
-      const stateCode = selectedState?.state_code?.toUpperCase() || '';
+      // qualityFilters.state is now the state code (e.g., "GA", "NC")
+      const stateCode = qualityFilters.state.toUpperCase();
       
       // Filter by state code (all states are now normalized to codes like "GA", "NC")
       filtered = filtered.filter(p => {

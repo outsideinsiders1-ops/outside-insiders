@@ -79,11 +79,19 @@ export async function POST(request) {
         console.log(`Found ${parksFound} parks from NPS API`)
 
         if (parksFound === 0) {
+          console.error('NPS API returned 0 parks. This could indicate:')
+          console.error('1. Invalid API key')
+          console.error('2. API rate limiting')
+          console.error('3. Network issue')
           return Response.json({
             success: false,
             error: 'No parks found',
             message: 'NPS API returned 0 parks. Please check your API key and try again.',
-            details: 'This could indicate an authentication issue or the API returned no results.'
+            details: 'This could indicate an authentication issue or the API returned no results.',
+            debug: {
+              apiKeyProvided: !!effectiveApiKey,
+              apiKeyLength: effectiveApiKey?.length || 0
+            }
           }, { status: 400, headers })
         }
 
