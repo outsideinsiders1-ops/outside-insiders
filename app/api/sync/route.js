@@ -10,6 +10,9 @@ import { mapNPSParksToSchema, mapRecreationGovFacilitiesToSchema } from '../../.
 import { insertOrUpdatePark } from '../../../lib/utils/db-operations.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
 
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 export async function POST(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
