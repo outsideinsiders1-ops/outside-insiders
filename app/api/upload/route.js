@@ -11,7 +11,7 @@ import { mapPropertiesToParkSchema, logUnmappedProperties } from '../../../lib/u
 import { geojsonToWKT, validateGeometry as validateWKT } from '../../../lib/utils/geometry-wkt.js'
 import { validateGeometry, fixGeometry } from '../../../lib/utils/geometry-validator.js'
 import { normalizeParkName } from '../../../lib/utils/db-operations.js'
-import { downloadAndReassembleChunks, cleanupChunks } from '../../../lib/utils/chunked-upload.js'
+import { cleanupChunks } from '../../../lib/utils/chunked-upload.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
 import { normalizeStateToCode } from '../../../lib/utils/state-normalizer.js'
 
