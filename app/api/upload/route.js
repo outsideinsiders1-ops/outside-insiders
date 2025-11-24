@@ -400,11 +400,47 @@ export async function POST(request) {
       }
       
       // CRITICAL: Parks must have coordinates to display on map
+      // If coordinates are missing but we have geometry, try to calculate centroid
+      if ((!park.latitude || !park.longitude) && geometry) {
+        console.log(`Park ${park.name} missing coordinates but has geometry - calculating centroid...`)
+        // Recalculate from geometry if we have it
+        if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+          const coords = geometry.coordinates
+          let allLngs = []
+          let allLats = []
+          
+          if (geometry.type === 'Polygon') {
+            for (const ring of coords) {
+              for (const coord of ring) {
+                allLngs.push(coord[0])
+                allLats.push(coord[1])
+              }
+            }
+          } else if (geometry.type === 'MultiPolygon') {
+            for (const polygon of coords) {
+              for (const ring of polygon) {
+                for (const coord of ring) {
+                  allLngs.push(coord[0])
+                  allLats.push(coord[1])
+                }
+              }
+            }
+          }
+          
+          if (allLngs.length > 0 && allLats.length > 0) {
+            park.longitude = allLngs.reduce((a, b) => a + b, 0) / allLngs.length
+            park.latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
+            console.log(`Calculated centroid for ${park.name}: (${park.latitude}, ${park.longitude})`)
+          }
+        }
+      }
+      
+      // Final validation - skip if still no valid coordinates
       if (!park.latitude || !park.longitude || 
           isNaN(park.latitude) || isNaN(park.longitude) ||
           park.latitude < -90 || park.latitude > 90 ||
           park.longitude < -180 || park.longitude > 180) {
-        console.warn(`Skipping ${park.name}: Invalid coordinates (${park.latitude}, ${park.longitude})`)
+        console.warn(`Skipping ${park.name}: Invalid or missing coordinates (${park.latitude}, ${park.longitude})`)
         continue
       }
       
