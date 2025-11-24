@@ -1013,6 +1013,12 @@ function AdminPanel() {
         >
           🔍 Data Quality
         </button>
+        <button
+          className={`tab ${activeTab === 'geocode' ? 'active' : ''}`}
+          onClick={() => setActiveTab('geocode')}
+        >
+          📍 Geocode Missing Coordinates
+        </button>
       </div>
 
       {/* Tab Content */}

@@ -1,11 +1,11 @@
 {
-  "/api/scrape/route": "app/api/scrape/route.js",
-  "/api/admin/data-quality/update/route": "app/api/admin/data-quality/update/route.js",
-  "/api/admin/data-quality/route": "app/api/admin/data-quality/route.js",
   "/_not-found/page": "app/_not-found/page.js",
-  "/api/sync/route": "app/api/sync/route.js",
-  "/api/upload/route": "app/api/upload/route.js",
+  "/api/admin/data-quality/update/route": "app/api/admin/data-quality/update/route.js",
+  "/api/scrape/route": "app/api/scrape/route.js",
   "/api/admin/geocode/route": "app/api/admin/geocode/route.js",
-  "/page": "app/page.js",
-  "/admin/page": "app/admin/page.js"
+  "/api/sync/route": "app/api/sync/route.js",
+  "/api/admin/data-quality/route": "app/api/admin/data-quality/route.js",
+  "/api/upload/route": "app/api/upload/route.js",
+  "/admin/page": "app/admin/page.js",
+  "/page": "app/page.js"
 }
