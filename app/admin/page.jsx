@@ -45,7 +45,6 @@ function AdminPanel() {
   const [uploadError, setUploadError] = useState(null);
 
   // API Sync state
-  const [syncApiUrl, setSyncApiUrl] = useState('');
   const [syncSourceType, setSyncSourceType] = useState('NPS');
   const [syncApiKey, setSyncApiKey] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
@@ -539,13 +538,14 @@ function AdminPanel() {
 
   // ==================== API SYNC HANDLER ====================
   const handleApiSync = async () => {
-    if (!syncApiUrl.trim()) {
-      setSyncError('Please enter an API URL');
+    if (!syncSourceType) {
+      setSyncError('Please select a source type');
       return;
     }
 
-    if (!syncSourceType) {
-      setSyncError('Please select a source type');
+    // For NPS and Recreation.gov, API key is required
+    if ((syncSourceType === 'NPS' || syncSourceType === 'Recreation.gov') && !syncApiKey.trim()) {
+      setSyncError('API key is required for this source type');
       return;
     }
 
@@ -554,17 +554,20 @@ function AdminPanel() {
     setSyncResult(null);
 
     try {
+      console.log('Starting API sync:', { sourceType: syncSourceType, hasApiKey: !!syncApiKey.trim() });
+      
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          apiUrl: syncApiUrl.trim(),
           sourceType: syncSourceType,
           apiKey: syncApiKey.trim() || undefined,
         }),
       });
+
+      console.log('API sync response status:', response.status);
 
       const data = await response.json();
 
@@ -1258,49 +1261,28 @@ function AdminPanel() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="sync-api-url">2️⃣ Enter API URL:</label>
-              <input
-                id="sync-api-url"
-                name="syncApiUrl"
-                type="url"
-                value={syncApiUrl}
-                onChange={(e) => {
-                  setSyncApiUrl(e.target.value);
-                  setSyncError(null);
-                }}
-                placeholder="https://api.nps.gov/api/v1/parks"
-                disabled={syncLoading}
-                style={{ width: '100%', padding: '8px', marginTop: '5px', fontFamily: 'monospace' }}
-              />
-              <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
-                <strong>Examples:</strong>
-                <br />• NPS: <code>https://api.nps.gov/api/v1/parks</code>
-                <br />• Recreation.gov: <code>https://ridb.recreation.gov/api/v1/facilities</code>
-                <br />• State APIs: Check your state's park agency website
-              </p>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="sync-api-key">3️⃣ API Key (if required):</label>
+              <label htmlFor="sync-api-key">2️⃣ API Key (required for NPS and Recreation.gov):</label>
               <input
                 id="sync-api-key"
                 name="syncApiKey"
                 type="password"
                 value={syncApiKey}
                 onChange={(e) => setSyncApiKey(e.target.value)}
-                placeholder="Enter API key if required by the API"
+                placeholder="Enter your API key"
                 disabled={syncLoading}
                 style={{ width: '100%', padding: '8px', marginTop: '5px' }}
               />
               <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
-                <strong>Note:</strong> Some APIs require authentication. Enter your API key here if needed.
+                <strong>For NPS:</strong> Get your API key from <a href="https://www.nps.gov/subjects/developer/get-started.htm" target="_blank" rel="noopener noreferrer">developer.nps.gov</a>
+                <br />
+                <strong>For Recreation.gov:</strong> Get your API key from <a href="https://ridb.recreation.gov/" target="_blank" rel="noopener noreferrer">ridb.recreation.gov</a>
               </p>
             </div>
 
             <div className="form-group">
               <button
                 onClick={handleApiSync}
-                disabled={!syncApiUrl.trim() || !syncSourceType || syncLoading}
+                disabled={!syncSourceType || syncLoading || ((syncSourceType === 'NPS' || syncSourceType === 'Recreation.gov') && !syncApiKey.trim())}
                 className="primary-button"
               >
                 {syncLoading ? '⏳ Syncing...' : '🔌 Sync API'}

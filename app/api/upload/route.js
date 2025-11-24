@@ -46,54 +46,73 @@ export async function POST(request) {
         
         // Check if this is a chunked upload (filePath will have .chunk.0 pattern)
         const filePath = formData.get('filePath') || null
-        const isChunked = filePath && fileUrl.includes('.chunk.')
+        const isChunked = filePath && (filePath.includes('.chunk.') || fileUrl.includes('.chunk.'))
         
         if (isChunked && filePath) {
           // Reassemble chunks from storage
           console.log('Detected chunked upload, reassembling chunks...')
+          console.log('File path:', filePath)
           
-          // Extract base path and determine total chunks
-          // We need to check how many chunks exist
+          // Extract base path (remove .chunk.X suffix if present)
           const basePath = filePath.replace(/\.chunk\.\d+$/, '')
+          const pathParts = basePath.split('/')
+          const directory = pathParts.slice(0, -1).join('/') || 'uploads'
+          const baseFileName = pathParts[pathParts.length - 1]
+          
+          console.log(`Listing files in directory: ${directory}, looking for: ${baseFileName}`)
+          
+          // List all files in the directory to find chunks
           const { data: files, error: listError } = await supabaseServer.storage
             .from('park-uploads')
-            .list(basePath.split('/').slice(0, -1).join('/'), {
-              search: basePath.split('/').pop()
-            })
+            .list(directory)
           
           if (listError) {
+            console.error('Error listing files:', listError)
             throw new Error(`Failed to list chunks: ${listError.message}`)
           }
           
-          // Count chunks
-          const chunkFiles = files.filter(f => f.name.startsWith(basePath.split('/').pop() + '.chunk.'))
+          console.log(`Found ${files?.length || 0} files in directory`)
+          
+          // Count chunks that match our base filename
+          const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
+          const chunkFiles = (files || []).filter(f => chunkPattern.test(f.name))
           const totalChunks = chunkFiles.length
           
+          console.log(`Found ${totalChunks} chunks matching pattern`)
+          
           if (totalChunks === 0) {
-            throw new Error('No chunks found in storage')
+            // Fallback: try to download as regular file
+            console.log('No chunks found, trying to download as regular file...')
+            const response = await fetch(fileUrl)
+            if (!response.ok) {
+              throw new Error(`Failed to download file from storage: ${response.statusText}`)
+            }
+            const blob = await response.blob()
+            const urlParts = fileUrl.split('/')
+            const urlFileName = urlParts[urlParts.length - 1].split('?')[0]
+            fileName = urlFileName || sourceName
+            fileToProcess = new File([blob], fileName, { type: blob.type })
+          } else {
+            console.log(`Reassembling ${totalChunks} chunks from base path: ${basePath}`)
+            
+            // Reassemble chunks
+            const blob = await downloadAndReassembleChunks(
+              supabaseServer,
+              'park-uploads',
+              basePath,
+              totalChunks
+            )
+            
+            // Clean up chunks after reassembly
+            await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)
+            
+            // Extract filename
+            fileName = baseFileName || sourceName
+            fileToProcess = new File([blob], fileName, { type: blob.type || 'application/octet-stream' })
           }
-          
-          console.log(`Reassembling ${totalChunks} chunks...`)
-          
-          // Reassemble chunks
-          const blob = await downloadAndReassembleChunks(
-            supabaseServer,
-            'park-uploads',
-            basePath,
-            totalChunks
-          )
-          
-          // Clean up chunks after reassembly
-          await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)
-          
-          // Extract filename
-          const urlParts = fileUrl.split('/')
-          const urlFileName = urlParts[urlParts.length - 1].split('?')[0].replace(/\.chunk\.\d+$/, '')
-          fileName = urlFileName || sourceName
-          
-          fileToProcess = new File([blob], fileName, { type: blob.type || 'application/octet-stream' })
         } else {
           // Regular file download
+          console.log('Downloading regular file (not chunked)')
           const response = await fetch(fileUrl)
           if (!response.ok) {
             throw new Error(`Failed to download file from storage: ${response.statusText}`)
@@ -111,6 +130,7 @@ export async function POST(request) {
           fileToProcess = new File([blob], fileName, { type: blob.type })
         }
       } catch (error) {
+        console.error('File download error:', error)
         return Response.json({ 
           success: false, 
           error: `Failed to download file from storage: ${error.message}` 
