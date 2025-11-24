@@ -735,7 +735,21 @@ function AdminPanel() {
     
     // Apply dropdown filters
     if (qualityFilters.state) {
-      filtered = filtered.filter(p => p.state === qualityFilters.state);
+      // Find state code from state name for matching
+      const selectedState = states.find(s => s.name === qualityFilters.state);
+      const stateCode = selectedState?.state_code;
+      
+      // Filter by both state name and state code to handle different formats
+      filtered = filtered.filter(p => {
+        const parkState = (p.state || '').toUpperCase();
+        const filterState = qualityFilters.state.toUpperCase();
+        const filterCode = stateCode ? stateCode.toUpperCase() : '';
+        
+        return parkState === filterState || 
+               parkState === filterCode ||
+               (filterCode && parkState.includes(filterCode)) ||
+               (filterState && parkState.includes(filterState));
+      });
     }
     if (qualityFilters.agency) {
       filtered = filtered.filter(p => p.agency === qualityFilters.agency);
@@ -1527,7 +1541,10 @@ function AdminPanel() {
                 <label>Filter by Agency:</label>
                 <select
                   value={qualityFilters.agency}
-                  onChange={(e) => setQualityFilters({ ...qualityFilters, agency: e.target.value })}
+                  onChange={(e) => {
+                    setQualityFilters({ ...qualityFilters, agency: e.target.value });
+                    setTimeout(() => applyFilters(), 0);
+                  }}
                   disabled={qualityLoading}
                   style={{ width: '100%', padding: '8px' }}
                 >
@@ -1542,7 +1559,10 @@ function AdminPanel() {
                 <label>Filter by Data Source:</label>
                 <select
                   value={qualityFilters.dataSource}
-                  onChange={(e) => setQualityFilters({ ...qualityFilters, dataSource: e.target.value })}
+                  onChange={(e) => {
+                    setQualityFilters({ ...qualityFilters, dataSource: e.target.value });
+                    setTimeout(() => applyFilters(), 0);
+                  }}
                   disabled={qualityLoading}
                   style={{ width: '100%', padding: '8px' }}
                 >
@@ -1662,8 +1682,10 @@ function AdminPanel() {
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Name</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>State</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Agency</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Website</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Acres</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Quality</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Source</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1758,6 +1780,22 @@ function AdminPanel() {
                                        park.qualityScore >= 40 ? '#856404' : '#721c24'
                               }}>
                                 {park.qualityScore || 0}/100
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px', borderBottom: '1px solid #eee' }}>
+                              <span style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.85rem',
+                                fontWeight: '500',
+                                background: park.data_source_priority >= 90 ? '#d4edda' :
+                                           park.data_source_priority >= 80 ? '#d1ecf1' :
+                                           park.data_source_priority >= 60 ? '#fff3cd' : '#f8d7da',
+                                color: park.data_source_priority >= 90 ? '#155724' :
+                                       park.data_source_priority >= 80 ? '#0c5460' :
+                                       park.data_source_priority >= 60 ? '#856404' : '#721c24'
+                              }}>
+                                {park.data_source_priority || 0}
                               </span>
                             </td>
                           </tr>

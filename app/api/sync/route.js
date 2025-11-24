@@ -8,7 +8,7 @@ import { fetchAllNPSParks } from '../../../lib/utils/nps-api.js'
 import { fetchRecreationFacilities } from '../../../lib/utils/recreation-gov-api.js'
 import { mapNPSParksToSchema, mapRecreationGovFacilitiesToSchema } from '../../../lib/utils/api-field-mapper.js'
 import { insertOrUpdatePark } from '../../../lib/utils/db-operations.js'
-import { supabaseServer as createClient } from '../../../lib/supabase-server.js'
+import { supabaseServer } from '../../../lib/supabase-server.js'
 
 export async function POST(request) {
   const headers = {
@@ -55,12 +55,19 @@ export async function POST(request) {
     let parksSkipped = 0
     const errors = []
 
-    const supabase = createClient
+    if (!supabaseServer) {
+      return Response.json({
+        success: false,
+        error: 'Supabase client not initialized',
+        message: 'Server configuration error'
+      }, { status: 500, headers })
+    }
     
     // Handle NPS API
     if (sourceType === 'NPS' || sourceType === 'National Park Service') {
       try {
         console.log('Fetching parks from NPS API...')
+        console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
         
         const npsParks = await fetchAllNPSParks(effectiveApiKey, {
           onProgress: (progress) => {
@@ -71,8 +78,18 @@ export async function POST(request) {
         parksFound = npsParks.length
         console.log(`Found ${parksFound} parks from NPS API`)
 
+        if (parksFound === 0) {
+          return Response.json({
+            success: false,
+            error: 'No parks found',
+            message: 'NPS API returned 0 parks. Please check your API key and try again.',
+            details: 'This could indicate an authentication issue or the API returned no results.'
+          }, { status: 400, headers })
+        }
+
         // Map to our schema
         const mappedParks = mapNPSParksToSchema(npsParks)
+        console.log(`Mapped ${mappedParks.length} parks to schema`)
 
         // Process each park
         for (const park of mappedParks) {
@@ -88,7 +105,7 @@ export async function POST(request) {
             }
 
             // Insert or update park
-            const result = await insertOrUpdatePark(supabase, park, { priority: 100 }) // API data has high priority
+            const result = await insertOrUpdatePark(supabaseServer, park, 'NPS')
 
             if (result.action === 'inserted') {
               parksAdded++
@@ -148,7 +165,7 @@ export async function POST(request) {
             }
 
             // Insert or update park
-            const result = await insertOrUpdatePark(supabase, park, { priority: 100 })
+            const result = await insertOrUpdatePark(supabaseServer, park, 'Recreation.gov')
 
             if (result.action === 'inserted') {
               parksAdded++

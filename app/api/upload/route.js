@@ -11,9 +11,8 @@ import { mapPropertiesToParkSchema, logUnmappedProperties } from '../../../lib/u
 import { geojsonToWKT, validateGeometry as validateWKT } from '../../../lib/utils/geometry-wkt.js'
 import { validateGeometry, fixGeometry } from '../../../lib/utils/geometry-validator.js'
 import { normalizeParkName } from '../../../lib/utils/db-operations.js'
-// Chunked upload support - will be used when implementing chunk reassembly on server
-// import { downloadAndReassembleChunks, cleanupChunks } from '../../../lib/utils/chunked-upload.js'
-// import { createClient } from '@supabase/supabase-js'
+import { downloadAndReassembleChunks, cleanupChunks } from '../../../lib/utils/chunked-upload.js'
+import { supabaseServer } from '../../../lib/supabase-server.js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
@@ -44,21 +43,73 @@ export async function POST(request) {
     if (fileUrl) {
       try {
         console.log(`Downloading file from storage: ${fileUrl}`)
-        const response = await fetch(fileUrl)
-        if (!response.ok) {
-          throw new Error(`Failed to download file from storage: ${response.statusText}`)
+        
+        // Check if this is a chunked upload (filePath will have .chunk.0 pattern)
+        const filePath = formData.get('filePath') || null
+        const isChunked = filePath && fileUrl.includes('.chunk.')
+        
+        if (isChunked && filePath) {
+          // Reassemble chunks from storage
+          console.log('Detected chunked upload, reassembling chunks...')
+          
+          // Extract base path and determine total chunks
+          // We need to check how many chunks exist
+          const basePath = filePath.replace(/\.chunk\.\d+$/, '')
+          const { data: files, error: listError } = await supabaseServer.storage
+            .from('park-uploads')
+            .list(basePath.split('/').slice(0, -1).join('/'), {
+              search: basePath.split('/').pop()
+            })
+          
+          if (listError) {
+            throw new Error(`Failed to list chunks: ${listError.message}`)
+          }
+          
+          // Count chunks
+          const chunkFiles = files.filter(f => f.name.startsWith(basePath.split('/').pop() + '.chunk.'))
+          const totalChunks = chunkFiles.length
+          
+          if (totalChunks === 0) {
+            throw new Error('No chunks found in storage')
+          }
+          
+          console.log(`Reassembling ${totalChunks} chunks...`)
+          
+          // Reassemble chunks
+          const blob = await downloadAndReassembleChunks(
+            supabaseServer,
+            'park-uploads',
+            basePath,
+            totalChunks
+          )
+          
+          // Clean up chunks after reassembly
+          await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)
+          
+          // Extract filename
+          const urlParts = fileUrl.split('/')
+          const urlFileName = urlParts[urlParts.length - 1].split('?')[0].replace(/\.chunk\.\d+$/, '')
+          fileName = urlFileName || sourceName
+          
+          fileToProcess = new File([blob], fileName, { type: blob.type || 'application/octet-stream' })
+        } else {
+          // Regular file download
+          const response = await fetch(fileUrl)
+          if (!response.ok) {
+            throw new Error(`Failed to download file from storage: ${response.statusText}`)
+          }
+          
+          // Get file as blob
+          const blob = await response.blob()
+          
+          // Create a File-like object from blob for processing
+          // Extract filename from URL or use sourceName
+          const urlParts = fileUrl.split('/')
+          const urlFileName = urlParts[urlParts.length - 1].split('?')[0] // Remove query params
+          fileName = urlFileName || sourceName
+          
+          fileToProcess = new File([blob], fileName, { type: blob.type })
         }
-        
-        // Get file as blob
-        const blob = await response.blob()
-        
-        // Create a File-like object from blob for processing
-        // Extract filename from URL or use sourceName
-        const urlParts = fileUrl.split('/')
-        const urlFileName = urlParts[urlParts.length - 1].split('?')[0] // Remove query params
-        fileName = urlFileName || sourceName
-        
-        fileToProcess = new File([blob], fileName, { type: blob.type })
       } catch (error) {
         return Response.json({ 
           success: false, 
