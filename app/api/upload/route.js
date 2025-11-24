@@ -13,6 +13,7 @@ import { validateGeometry, fixGeometry } from '../../../lib/utils/geometry-valid
 import { normalizeParkName } from '../../../lib/utils/db-operations.js'
 import { downloadAndReassembleChunks, cleanupChunks } from '../../../lib/utils/chunked-upload.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
+import { normalizeStateToCode } from '../../../lib/utils/state-normalizer.js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
