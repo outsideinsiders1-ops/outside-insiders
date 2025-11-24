@@ -710,7 +710,9 @@ function AdminPanel() {
         // Calculate quality scores for each park
         const parksWithScores = parks.map(park => ({
           ...park,
-          qualityScore: calculateDataQualityScore(park)
+          qualityScore: calculateDataQualityScore(park),
+          // Ensure data_source_priority is included (may be null)
+          data_source_priority: park.data_source_priority || 0
         }));
 
         setAllParks(parksWithScores);
@@ -1744,6 +1746,21 @@ function AdminPanel() {
                               onSave={(value) => {
                                 const updates = editedParks.get(park.id) || {};
                                 updates.agency = value;
+                                setEditedParks(new Map(editedParks).set(park.id, updates));
+                                setEditingCell(null);
+                              }}
+                              onCancel={() => setEditingCell(null)}
+                            />
+                            <EditableCell
+                              parkId={park.id}
+                              field="website"
+                              value={park.website || ''}
+                              editedValue={editedParks.get(park.id)?.website}
+                              isEditing={editingCell?.parkId === park.id && editingCell?.field === 'website'}
+                              onStartEdit={() => setEditingCell({ parkId: park.id, field: 'website' })}
+                              onSave={(value) => {
+                                const updates = editedParks.get(park.id) || {};
+                                updates.website = value;
                                 setEditedParks(new Map(editedParks).set(park.id, updates));
                                 setEditingCell(null);
                               }}
