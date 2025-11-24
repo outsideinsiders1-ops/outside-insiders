@@ -742,18 +742,12 @@ function AdminPanel() {
     if (qualityFilters.state) {
       // Find state code from state name for matching
       const selectedState = states.find(s => s.name === qualityFilters.state);
-      const stateCode = selectedState?.state_code;
+      const stateCode = selectedState?.state_code?.toUpperCase() || '';
       
-      // Filter by both state name and state code to handle different formats
+      // Filter by state code (all states are now normalized to codes like "GA", "NC")
       filtered = filtered.filter(p => {
         const parkState = (p.state || '').toUpperCase();
-        const filterState = qualityFilters.state.toUpperCase();
-        const filterCode = stateCode ? stateCode.toUpperCase() : '';
-        
-        return parkState === filterState || 
-               parkState === filterCode ||
-               (filterCode && parkState.includes(filterCode)) ||
-               (filterState && parkState.includes(filterState));
+        return parkState === stateCode;
       });
     }
     if (qualityFilters.agency) {
