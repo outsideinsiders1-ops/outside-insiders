@@ -214,12 +214,17 @@ export async function POST(request) {
             continue
           }
         }
+        
         console.log(`=== NPS API SYNC COMPLETE ===`)
         console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
         
-        // Log if we didn't process all parks (might have hit timeout)
+        // Log if we didn't process all parks (might have hit timeout or error)
         if (processedCount < mappedParks.length) {
-          console.warn(`⚠️ WARNING: Only processed ${processedCount} of ${mappedParks.length} parks. This might indicate a timeout.`)
+          const remaining = mappedParks.length - processedCount
+          console.warn(`⚠️ WARNING: Only processed ${processedCount} of ${mappedParks.length} parks. ${remaining} parks were not processed.`)
+          console.warn(`   This might indicate a timeout or an unhandled error. Check logs above for details.`)
+        } else {
+          console.log(`✅ Successfully processed all ${mappedParks.length} parks!`)
         }
 
       } catch (error) {
