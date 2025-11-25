@@ -649,9 +649,14 @@ function AdminPanel() {
 
       // Check if this is actually the scrape route response (wrong route)
       if (data.route === 'SCRAPE_ROUTE' || (data.message && data.message.includes('TEST: Scraping'))) {
-        setSyncError('ERROR: Request was routed to /api/scrape instead of /api/sync. This is a Next.js routing issue. The Vercel logs should show red circles (🔴) instead of blue circles (🔵). Please try:\n1. Hard refresh the page (Cmd+Shift+R)\n2. Clear browser cache\n3. Redeploy on Vercel');
+        setSyncError('ERROR: Request was routed to /api/scrape instead of /api/sync. This is a Next.js routing issue.\n\nTROUBLESHOOTING:\n1. Check Vercel logs - you should see 🔴 (red) circles, not 🔵 (blue)\n2. In Vercel dashboard, go to Settings > Functions and clear build cache\n3. Force a new deployment by making a small change and redeploying\n4. Check if there are any Vercel rewrites or redirects configured\n\nIf this persists, it may be a Next.js App Router bug. Consider temporarily renaming /api/scrape to /api/scrape-old to test.');
         setSyncResult(null);
         return;
+      }
+      
+      // Verify we got the sync route response
+      if (data.route !== 'SYNC_ROUTE' && !data.route) {
+        console.warn('WARNING: Response does not have route identifier. This might indicate a routing issue.');
       }
 
       // Only show success if response.ok AND data.success is true
