@@ -342,7 +342,8 @@ export async function POST(request) {
     }
 
     // Return response with both formats for compatibility
-    return Response.json({
+    const totalProcessed = parksAdded + parksUpdated + parksSkipped
+    const response = {
       success: true,
       message: 'Sync complete',
       route: 'SYNC_ROUTE', // CRITICAL: This identifies this as the sync route
@@ -357,7 +358,15 @@ export async function POST(request) {
         parksSkipped
       },
       errors: errors.length > 0 ? errors : undefined
-    }, { status: 200, headers })
+    }
+    
+    // Add warning if we might have hit a timeout
+    if (parksFound > 0 && totalProcessed < parksFound) {
+      response.warning = `Only processed ${totalProcessed} of ${parksFound} parks. This might indicate a Vercel function timeout. Consider upgrading to Vercel Pro for longer execution times (up to 5 minutes).`
+      response.partial = true
+    }
+    
+    return Response.json(response, { status: 200, headers })
     
   } catch (error) {
     console.error('Sync API Error:', error)
