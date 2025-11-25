@@ -959,12 +959,14 @@ function AdminPanel() {
     setDeleteLoading(true);
 
     try {
+      // Use POST with action=delete since some proxies don't support DELETE
       const response = await fetch('/api/admin/data-quality', {
-        method: 'DELETE',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          action: 'delete',
           parkIds: Array.from(selectedParks)
         }),
       });
@@ -1812,7 +1814,7 @@ function AdminPanel() {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ maxHeight: '600px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
+                  <div style={{ border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0, zIndex: 10 }}>
                         <tr>
@@ -2072,7 +2074,7 @@ function AdminPanel() {
                 )}
 
                 {qualityBreakdown && qualityBreakdown.rows && qualityBreakdown.rows.length > 0 && !breakdownLoading && (
-                  <div style={{ maxHeight: '600px', overflow: 'auto', border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
+                  <div style={{ border: '1px solid #ddd', borderRadius: '8px', background: '#fff' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0, zIndex: 10 }}>
                         <tr>
@@ -2144,7 +2146,7 @@ function AdminPanel() {
                 <p style={{ color: '#666', marginBottom: '15px' }}>
                   These parks may be offices, facilities, or other non-park locations
                 </p>
-                <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '8px' }}>
+                <div style={{ border: '1px solid #ddd', borderRadius: '8px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead style={{ background: '#f5f5f5', position: 'sticky', top: 0 }}>
                       <tr>

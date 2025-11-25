@@ -1,13 +1,13 @@
 {
   "version": 1,
   "functions": {
-    "/api/upload": {
-      "maxDuration": 300
-    },
+    "/api/admin/data-quality": {},
     "/api/admin/geocode": {
       "maxDuration": 300
     },
     "/api/sync": {},
-    "/api/admin/data-quality": {}
+    "/api/upload": {
+      "maxDuration": 300
+    }
   }
 }

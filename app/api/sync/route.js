@@ -159,16 +159,46 @@ export async function POST(request) {
     // Handle Recreation.gov API
     else if (sourceType === 'Recreation.gov' || sourceType === 'Recreation.gov API') {
       try {
-        console.log('Fetching facilities from Recreation.gov API...')
+        console.log('=== RECREATION.GOV API SYNC START ===')
+        console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
+        console.log('API Key length:', effectiveApiKey?.length || 0)
+        console.log('API Key preview:', effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : 'None')
         
         const facilities = await fetchRecreationFacilities(effectiveApiKey, {
           onProgress: (progress) => {
-            console.log(`Recreation.gov API Progress: ${progress.fetched} facilities fetched`)
+            console.log(`Recreation.gov API Progress: ${progress.fetched} facilities fetched${progress.total !== 'unknown' ? ` of ${progress.total}` : ''}`)
           }
         })
 
         parksFound = facilities.length
-        console.log(`Found ${parksFound} facilities from Recreation.gov API`)
+        console.log(`=== RECREATION.GOV API RESPONSE ===`)
+        console.log(`Total facilities fetched: ${parksFound}`)
+        console.log(`First facility sample:`, facilities[0] ? {
+          FacilityName: facilities[0].FacilityName,
+          FacilityID: facilities[0].FacilityID,
+          FacilityLatitude: facilities[0].FacilityLatitude,
+          FacilityLongitude: facilities[0].FacilityLongitude
+        } : 'No facilities')
+
+        if (parksFound === 0) {
+          console.error('=== RECREATION.GOV API ERROR: 0 FACILITIES RETURNED ===')
+          console.error('This could indicate:')
+          console.error('1. Invalid API key')
+          console.error('2. API rate limiting')
+          console.error('3. Network issue')
+          console.error('4. API endpoint changed')
+          return Response.json({
+            success: false,
+            error: 'No facilities found',
+            message: 'Recreation.gov API returned 0 facilities. Please check your API key and try again.',
+            details: 'This could indicate an authentication issue or the API returned no results.',
+            debug: {
+              apiKeyProvided: !!effectiveApiKey,
+              apiKeyLength: effectiveApiKey?.length || 0,
+              apiKeyPreview: effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : null
+            }
+          }, { status: 400, headers })
+        }
 
         // Map to our schema
         const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)

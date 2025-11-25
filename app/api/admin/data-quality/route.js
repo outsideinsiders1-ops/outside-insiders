@@ -158,7 +158,7 @@ export async function GET(request) {
 export async function DELETE(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'DELETE,OPTIONS',
+    'Access-Control-Allow-Methods': 'DELETE,OPTIONS,POST',
     'Access-Control-Allow-Headers': 'Content-Type',
   }
 
