@@ -155,6 +155,63 @@ export async function GET(request) {
   }
 }
 
+export async function POST(request) {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }
+
+  try {
+    const body = await request.json().catch(() => ({}))
+    const { action, parkIds } = body
+
+    // Handle delete action via POST (for compatibility with proxies that block DELETE)
+    if (action === 'delete') {
+      if (!parkIds || !Array.isArray(parkIds) || parkIds.length === 0) {
+        return Response.json({
+          success: false,
+          error: 'parkIds array is required'
+        }, { status: 400, headers })
+      }
+
+      // Delete parks
+      const { error } = await supabaseServer
+        .from('parks')
+        .delete()
+        .in('id', parkIds)
+
+      if (error) {
+        return Response.json({
+          success: false,
+          error: 'Failed to delete parks',
+          details: error.message
+        }, { status: 500, headers })
+      }
+
+      return Response.json({
+        success: true,
+        deleted: parkIds.length,
+        message: `Successfully deleted ${parkIds.length} park(s)`
+      }, { status: 200, headers })
+    }
+
+    return Response.json({
+      success: false,
+      error: 'Invalid action',
+      details: 'Supported actions: delete'
+    }, { status: 400, headers })
+
+  } catch (error) {
+    console.error('Delete parks error:', error)
+    return Response.json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message
+    }, { status: 500, headers })
+  }
+}
+
 export async function DELETE(request) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -208,7 +265,7 @@ export async function OPTIONS() {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET,DELETE,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   })
