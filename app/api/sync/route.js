@@ -294,6 +294,7 @@ export async function POST(request) {
     return Response.json({
       success: true,
       message: 'Sync complete',
+      route: 'SYNC_ROUTE', // CRITICAL: This identifies this as the sync route
       parksFound,
       parksAdded,
       parksUpdated,
