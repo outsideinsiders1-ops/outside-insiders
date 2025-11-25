@@ -43,6 +43,7 @@ function AdminPanel() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [syncError, setSyncError] = useState(null);
+  const [savedApiConfigs, setSavedApiConfigs] = useState([]); // Array of { sourceType, apiKey, lastUsed }
 
   // Data Quality state
   
@@ -83,7 +84,61 @@ function AdminPanel() {
     loadStates();
     loadAgencyOptions();
     loadDataSourceOptions();
+    loadSavedApiConfigs();
   }, []);
+
+  // Load saved API configurations from localStorage
+  const loadSavedApiConfigs = () => {
+    try {
+      const saved = localStorage.getItem('apiConfigs');
+      if (saved) {
+        const configs = JSON.parse(saved);
+        setSavedApiConfigs(configs);
+        // Auto-load the most recently used config
+        if (configs.length > 0) {
+          const mostRecent = configs.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed))[0];
+          setSyncSourceType(mostRecent.sourceType);
+          setSyncApiKey(mostRecent.apiKey);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading saved API configs:', error);
+    }
+  };
+
+  // Save API configuration to localStorage
+  const saveApiConfig = (sourceType, apiKey) => {
+    try {
+      const configs = savedApiConfigs.filter(c => c.sourceType !== sourceType);
+      const newConfig = {
+        sourceType,
+        apiKey,
+        lastUsed: new Date().toISOString()
+      };
+      const updated = [...configs, newConfig];
+      localStorage.setItem('apiConfigs', JSON.stringify(updated));
+      setSavedApiConfigs(updated);
+    } catch (error) {
+      console.error('Error saving API config:', error);
+    }
+  };
+
+  // Load a saved API configuration
+  const loadApiConfig = (config) => {
+    setSyncSourceType(config.sourceType);
+    setSyncApiKey(config.apiKey);
+  };
+
+  // Delete a saved API configuration
+  const deleteApiConfig = (sourceType) => {
+    try {
+      const updated = savedApiConfigs.filter(c => c.sourceType !== sourceType);
+      localStorage.setItem('apiConfigs', JSON.stringify(updated));
+      setSavedApiConfigs(updated);
+    } catch (error) {
+      console.error('Error deleting API config:', error);
+    }
+  };
 
   // Load all parks when Data Quality tab is active (Excel-like experience)
   useEffect(() => {
@@ -1452,16 +1507,65 @@ function AdminPanel() {
               </div>
             )}
 
-            <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px' }}>
-              <h4>📋 API Sync Features (Coming Soon):</h4>
-              <ul style={{ lineHeight: '1.8', textAlign: 'left' }}>
-                <li><strong>LLM-Powered Intelligence:</strong> Automatically analyzes API structure and suggests optimal endpoints</li>
-                <li><strong>Smart Field Mapping:</strong> Maps API response fields to park schema automatically</li>
-                <li><strong>Deduplication:</strong> Intelligently merges with existing park data</li>
-                <li><strong>Priority Protection:</strong> API data has highest priority (90-100) and won't be overwritten</li>
-                <li><strong>Error Recovery:</strong> Handles API errors gracefully and provides detailed feedback</li>
-              </ul>
-            </div>
+            {/* Saved API Configurations */}
+            {savedApiConfigs.length > 0 && (
+              <div style={{ marginTop: '30px', padding: '20px', background: '#f0f7ed', borderRadius: '8px' }}>
+                <h4>💾 Saved API Configurations:</h4>
+                <div style={{ marginTop: '15px' }}>
+                  {savedApiConfigs.map((config, index) => (
+                    <div key={index} style={{ 
+                      padding: '12px', 
+                      marginBottom: '10px', 
+                      background: '#fff', 
+                      borderRadius: '6px',
+                      border: '1px solid #ddd',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <div>
+                        <strong>{config.sourceType}</strong>
+                        <span style={{ marginLeft: '10px', fontSize: '0.9rem', color: '#666' }}>
+                          Last used: {new Date(config.lastUsed).toLocaleDateString()}
+                        </span>
+                        <div style={{ marginTop: '5px', fontSize: '0.85rem', color: '#999' }}>
+                          API Key: {config.apiKey.substring(0, 10)}...
+                        </div>
+                      </div>
+                      <div>
+                        <button
+                          onClick={() => loadApiConfig(config)}
+                          style={{ 
+                            marginRight: '8px',
+                            padding: '6px 12px',
+                            background: '#007bff',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => deleteApiConfig(config.sourceType)}
+                          style={{ 
+                            padding: '6px 12px',
+                            background: '#dc3545',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
