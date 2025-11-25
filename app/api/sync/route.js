@@ -178,12 +178,18 @@ export async function POST(request) {
             }
 
             // Insert or update park with timeout protection (30 seconds per park)
-            const result = await Promise.race([
-              insertOrUpdatePark(park, 'NPS'),
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Park processing timeout after 30 seconds')), 30000)
-              )
-            ])
+            let result
+            try {
+              result = await Promise.race([
+                insertOrUpdatePark(park, 'NPS'),
+                new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Park processing timeout after 30 seconds')), 30000)
+                )
+              ])
+            } catch (parkError) {
+              // Re-throw to be caught by outer catch block
+              throw parkError
+            }
 
             if (result.action === 'added') {
               parksAdded++
