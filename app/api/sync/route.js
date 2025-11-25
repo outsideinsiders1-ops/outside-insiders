@@ -201,14 +201,18 @@ export async function POST(request) {
           } catch (error) {
             parksSkipped++
             const errorMessage = error.message || 'Failed to process park'
+            const errorStack = error.stack || ''
             errors.push({
               park: park.name || 'Unknown',
               error: errorMessage
             })
             console.error(`❌ Error processing park "${park.name}" (${park.state || 'no state'}):`, errorMessage)
+            if (errorStack) {
+              console.error(`   Stack trace:`, errorStack.split('\n').slice(0, 3).join('\n'))
+            }
             // Continue processing other parks even if one fails
             continue
-            }
+          }
         }
         console.log(`=== NPS API SYNC COMPLETE ===`)
         console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
