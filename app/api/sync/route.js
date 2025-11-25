@@ -128,15 +128,32 @@ export async function POST(request) {
         const mappedParks = mapNPSParksToSchema(npsParks)
         console.log(`Mapped ${mappedParks.length} parks to schema`)
         
-        // Debug: Check first few mapped parks
+        // Debug: Check first few mapped parks and original NPS data
         if (mappedParks.length > 0) {
-          console.log('Sample mapped park:', {
+          console.log('=== SAMPLE MAPPED PARK DEBUG ===')
+          console.log('Original NPS park:', {
+            fullName: npsParks[0]?.fullName,
+            states: npsParks[0]?.states,
+            addresses: npsParks[0]?.addresses,
+            hasAddresses: !!npsParks[0]?.addresses,
+            addressCount: npsParks[0]?.addresses?.length || 0
+          })
+          console.log('Mapped park:', {
             name: mappedParks[0].name,
             state: mappedParks[0].state,
             hasName: !!mappedParks[0].name,
-            hasState: !!mappedParks[0].state,
-            originalStates: npsParks[0]?.states
+            hasState: !!mappedParks[0].state
           })
+          
+          // Count how many have missing state
+          const missingState = mappedParks.filter(p => !p.state).length
+          console.log(`Parks missing state: ${missingState} of ${mappedParks.length}`)
+          if (missingState > 0) {
+            console.log('First 5 parks missing state:', mappedParks.filter(p => !p.state).slice(0, 5).map(p => ({
+              name: p.name,
+              originalStates: npsParks.find(np => np.fullName === p.name)?.states
+            })))
+          }
         }
 
         // Process each park
