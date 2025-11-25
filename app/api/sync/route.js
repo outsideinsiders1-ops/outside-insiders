@@ -201,18 +201,28 @@ export async function POST(request) {
         }
 
         // Map to our schema
+        console.log('Mapping Recreation.gov facilities to schema...')
         const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
+        console.log(`Mapped ${mappedParks.length} facilities to schema`)
+        console.log('Sample mapped facility:', mappedParks[0] ? {
+          name: mappedParks[0].name,
+          state: mappedParks[0].state,
+          agency: mappedParks[0].agency
+        } : 'No facilities to map')
 
         // Process each park
+        console.log('Processing facilities (insert/update)...')
+        let processedCount = 0
         for (const park of mappedParks) {
           try {
             // Validate required fields
-            if (!park.name) {
+            if (!park.name || !park.state) {
               parksSkipped++
               errors.push({
                 park: park.name || 'Unknown',
-                error: 'Missing required field (name)'
+                error: 'Missing required fields (name or state)'
               })
+              console.warn(`Skipping facility (missing fields): ${park.name || 'Unknown'}`)
               continue
             }
 
@@ -221,20 +231,29 @@ export async function POST(request) {
 
             if (result.action === 'inserted') {
               parksAdded++
+              if (parksAdded % 10 === 0) {
+                console.log(`Inserted ${parksAdded} facilities so far...`)
+              }
             } else if (result.action === 'updated') {
               parksUpdated++
+              if (parksUpdated % 10 === 0) {
+                console.log(`Updated ${parksUpdated} facilities so far...`)
+              }
             } else {
               parksSkipped++
             }
+            processedCount++
           } catch (error) {
             parksSkipped++
             errors.push({
               park: park.name || 'Unknown',
-              error: error.message || 'Failed to process park'
+              error: error.message || 'Failed to process facility'
             })
-            console.error(`Error processing park ${park.name}:`, error)
+            console.error(`Error processing Recreation.gov facility ${park.name}:`, error)
           }
         }
+        console.log(`=== RECREATION.GOV API SYNC COMPLETE ===`)
+        console.log(`Processed: ${processedCount}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
 
       } catch (error) {
         console.error('Recreation.gov API Error:', error)
