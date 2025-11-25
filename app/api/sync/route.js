@@ -159,12 +159,15 @@ export async function POST(request) {
 
         // Process each park
         let processedCount = 0
+        let lastLogCount = 0
         for (const park of mappedParks) {
           processedCount++
           try {
-            // Log progress every 50 parks
+            // Log progress every 50 parks (reduced logging to avoid 256 log limit)
             if (processedCount % 50 === 0) {
-              console.log(`📊 Progress: Processing park ${processedCount}/${mappedParks.length}...`)
+              const logCount = processedCount - lastLogCount
+              console.log(`📊 Progress: ${processedCount}/${mappedParks.length} parks (${parksAdded} added, ${parksUpdated} updated, ${parksSkipped} skipped)`)
+              lastLogCount = processedCount
             }
             
             // Validate required fields
@@ -195,14 +198,13 @@ export async function POST(request) {
           } catch (error) {
             parksSkipped++
             const errorMessage = error.message || 'Failed to process park'
-            const errorStack = error.stack || ''
             errors.push({
               park: park.name || 'Unknown',
               error: errorMessage
             })
-            console.error(`❌ Error processing park "${park.name}" (${park.state || 'no state'}):`, errorMessage)
-            if (errorStack) {
-              console.error(`   Stack trace:`, errorStack.split('\n').slice(0, 3).join('\n'))
+            // Only log errors (not every skipped park) to reduce log volume
+            if (errorMessage.includes('timeout') || errorMessage.includes('Failed to')) {
+              console.error(`❌ Error: "${park.name}" (${park.state || 'no state'}): ${errorMessage}`)
             }
             // Continue processing other parks even if one fails
             continue
