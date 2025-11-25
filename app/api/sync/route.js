@@ -127,6 +127,17 @@ export async function POST(request) {
         // Map to our schema
         const mappedParks = mapNPSParksToSchema(npsParks)
         console.log(`Mapped ${mappedParks.length} parks to schema`)
+        
+        // Debug: Check first few mapped parks
+        if (mappedParks.length > 0) {
+          console.log('Sample mapped park:', {
+            name: mappedParks[0].name,
+            state: mappedParks[0].state,
+            hasName: !!mappedParks[0].name,
+            hasState: !!mappedParks[0].state,
+            originalStates: npsParks[0]?.states
+          })
+        }
 
         // Process each park
         for (const park of mappedParks) {
@@ -136,7 +147,7 @@ export async function POST(request) {
               parksSkipped++
               errors.push({
                 park: park.name || 'Unknown',
-                error: 'Missing required fields (name or state)'
+                error: `Missing required fields - name: ${!!park.name}, state: ${!!park.state}`
               })
               continue
             }
