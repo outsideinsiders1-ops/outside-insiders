@@ -170,7 +170,7 @@ export async function POST(request) {
             }
 
             // Insert or update park
-            const result = await insertOrUpdatePark(supabaseServer, park, 'NPS')
+            const result = await insertOrUpdatePark(park, 'NPS')
 
             if (result.action === 'inserted') {
               parksAdded++
@@ -270,7 +270,7 @@ export async function POST(request) {
             }
 
             // Insert or update park
-            const result = await insertOrUpdatePark(supabaseServer, park, 'Recreation.gov')
+            const result = await insertOrUpdatePark(park, 'Recreation.gov')
 
             if (result.action === 'inserted') {
               parksAdded++
