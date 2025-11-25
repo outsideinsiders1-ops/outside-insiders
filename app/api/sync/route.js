@@ -157,8 +157,15 @@ export async function POST(request) {
         }
 
         // Process each park
+        let processedCount = 0
         for (const park of mappedParks) {
+          processedCount++
           try {
+            // Log progress every 50 parks
+            if (processedCount % 50 === 0) {
+              console.log(`📊 Progress: Processing park ${processedCount}/${mappedParks.length}...`)
+            }
+            
             // Validate required fields
             if (!park.name || !park.state) {
               parksSkipped++
@@ -169,8 +176,13 @@ export async function POST(request) {
               continue
             }
 
-            // Insert or update park
-            const result = await insertOrUpdatePark(park, 'NPS')
+            // Insert or update park with timeout protection (30 seconds per park)
+            const result = await Promise.race([
+              insertOrUpdatePark(park, 'NPS'),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Park processing timeout after 30 seconds')), 30000)
+              )
+            ])
 
             if (result.action === 'added') {
               parksAdded++
@@ -181,13 +193,18 @@ export async function POST(request) {
             }
           } catch (error) {
             parksSkipped++
+            const errorMessage = error.message || 'Failed to process park'
             errors.push({
               park: park.name || 'Unknown',
-              error: error.message || 'Failed to process park'
+              error: errorMessage
             })
-            console.error(`Error processing park ${park.name}:`, error)
+            console.error(`❌ Error processing park "${park.name}" (${park.state || 'no state'}):`, errorMessage)
+            // Continue processing other parks even if one fails
+            continue
           }
         }
+        console.log(`=== NPS API SYNC COMPLETE ===`)
+        console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
 
       } catch (error) {
         console.error('NPS API Error:', error)
