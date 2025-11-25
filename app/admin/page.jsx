@@ -1,16 +1,9 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../lib/utils/supabase';
 import { calculateDataQualityScore, calculateQualityBreakdownMatrix, analyzeParksQuality } from '../../lib/utils/data-quality.js';
 import './AdminPanel.css';
-
-// Initialize Supabase client (with fallback for build time)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = supabaseUrl && supabaseKey 
-  ? createClient(supabaseUrl, supabaseKey)
-  : null
 
 function AdminPanel() {
   // State for active tab
