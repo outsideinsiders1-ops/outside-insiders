@@ -172,7 +172,7 @@ export async function POST(request) {
             // Insert or update park
             const result = await insertOrUpdatePark(park, 'NPS')
 
-            if (result.action === 'inserted') {
+            if (result.action === 'added') {
               parksAdded++
             } else if (result.action === 'updated') {
               parksUpdated++
@@ -272,10 +272,10 @@ export async function POST(request) {
             // Insert or update park
             const result = await insertOrUpdatePark(park, 'Recreation.gov')
 
-            if (result.action === 'inserted') {
+            if (result.action === 'added') {
               parksAdded++
               if (parksAdded % 10 === 0) {
-                console.log(`Inserted ${parksAdded} facilities so far...`)
+                console.log(`Added ${parksAdded} facilities so far...`)
               }
             } else if (result.action === 'updated') {
               parksUpdated++
