@@ -159,14 +159,12 @@ export async function POST(request) {
 
         // Process each park
         let processedCount = 0
-        let lastLogCount = 0
         for (const park of mappedParks) {
           processedCount++
           try {
             // Log progress every 50 parks (reduced logging to avoid 256 log limit)
             if (processedCount % 50 === 0) {
               console.log(`📊 Progress: ${processedCount}/${mappedParks.length} parks (${parksAdded} added, ${parksUpdated} updated, ${parksSkipped} skipped)`)
-              lastLogCount = processedCount
             }
             
             // Validate required fields
