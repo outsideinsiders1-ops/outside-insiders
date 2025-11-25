@@ -789,12 +789,25 @@ function AdminPanel() {
         }));
 
         setAllParks(parksWithScores);
-        // Apply current search query if exists, otherwise show all
+        // Apply current search query and filters
+        let filtered = parksWithScores;
+        
+        // Apply search filter
         if (searchQuery) {
-          handleSearchChange({ target: { value: searchQuery } });
-        } else {
-          setFilteredParks(parksWithScores);
+          const searchLower = searchQuery.toLowerCase();
+          filtered = filtered.filter(park => {
+            return (
+              (park.name && park.name.toLowerCase().includes(searchLower)) ||
+              (park.city && park.city.toLowerCase().includes(searchLower)) ||
+              (park.county && park.county.toLowerCase().includes(searchLower)) ||
+              (park.state && park.state.toLowerCase().includes(searchLower)) ||
+              (park.agency && park.agency.toLowerCase().includes(searchLower)) ||
+              (park.data_source && park.data_source.toLowerCase().includes(searchLower))
+            );
+          });
         }
+        
+        setFilteredParks(filtered);
       }
     } catch (err) {
       console.error('Load parks error:', err);
@@ -984,13 +997,38 @@ function AdminPanel() {
       }
 
       if (data.success) {
-        alert(`Successfully deleted ${data.deleted} park(s)`);
+        const deletedCount = data.deleted || selectedParks.size;
+        alert(`Successfully deleted ${deletedCount} park(s)`);
         setSelectedParks(new Set());
-        // Clear and reload parks and analysis
+        
+        // Clear state first
         setAllParks([]);
         setFilteredParks([]);
+        setQualityAnalysis(null);
+        
+        // Force reload - wait a bit to ensure state is cleared
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Reload parks and analysis
         await loadAllParks();
         await loadQualityAnalysis();
+        
+        // Also refresh the filtered parks display
+        if (searchQuery) {
+          // Reapply search filter
+          const searchLower = searchQuery.toLowerCase();
+          const filtered = allParks.filter(park => {
+            return (
+              (park.name && park.name.toLowerCase().includes(searchLower)) ||
+              (park.city && park.city.toLowerCase().includes(searchLower)) ||
+              (park.county && park.county.toLowerCase().includes(searchLower)) ||
+              (park.state && park.state.toLowerCase().includes(searchLower)) ||
+              (park.agency && park.agency.toLowerCase().includes(searchLower)) ||
+              (park.data_source && park.data_source.toLowerCase().includes(searchLower))
+            );
+          });
+          setFilteredParks(filtered);
+        }
       }
     } catch (err) {
       console.error('Delete parks error:', err);
