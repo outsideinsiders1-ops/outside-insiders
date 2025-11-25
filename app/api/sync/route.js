@@ -21,7 +21,8 @@ export async function POST(request) {
   }
 
   try {
-    console.log('=== SYNC ROUTE CALLED ===')
+    // UNIQUE IDENTIFIER - If you see this, sync route is being called
+    console.log('🔵🔵🔵 SYNC ROUTE CALLED (NOT SCRAPE) 🔵🔵🔵')
     console.log('Request URL:', request.url)
     console.log('Request method:', request.method)
     
@@ -37,7 +38,8 @@ export async function POST(request) {
         success: false, 
         error: 'Source type is required',
         details: 'Please specify the source type (e.g., "NPS", "Recreation.gov", "State Agency")',
-        example: { sourceType: 'NPS', apiKey: 'your-api-key' }
+        example: { sourceType: 'NPS', apiKey: 'your-api-key' },
+        route: 'SYNC_ROUTE' // Unique identifier
       }, { status: 400, headers })
     }
 

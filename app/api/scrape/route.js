@@ -5,6 +5,8 @@
 
 export async function POST(request) {
   try {
+    // UNIQUE IDENTIFIER - If you see this, SCRAPE route is being called
+    console.log('🔴🔴🔴 SCRAPE ROUTE CALLED (NOT SYNC) 🔴🔴🔴')
     const body = await request.json()
     const { type, name, state } = body
     
@@ -18,7 +20,8 @@ export async function POST(request) {
       parksAdded: 0,
       parksUpdated: 0,
       parksSkipped: 0,
-      note: 'This is a test response - scraping logic coming next!'
+      note: 'This is a test response - scraping logic coming next!',
+      route: 'SCRAPE_ROUTE' // Unique identifier
     })
     
   } catch (error) {
