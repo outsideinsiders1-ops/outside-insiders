@@ -12,6 +12,7 @@ import { supabaseServer } from '../../../lib/supabase-server.js'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+export const maxDuration = 300 // 5 minutes (Vercel Pro max, Hobby plan limited to 10s)
 
 export async function POST(request) {
   // CRITICAL: This is /api/sync route, NOT /api/scrape
@@ -201,10 +202,15 @@ export async function POST(request) {
             console.error(`❌ Error processing park "${park.name}" (${park.state || 'no state'}):`, errorMessage)
             // Continue processing other parks even if one fails
             continue
-          }
+            }
         }
         console.log(`=== NPS API SYNC COMPLETE ===`)
         console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
+        
+        // Log if we didn't process all parks (might have hit timeout)
+        if (processedCount < mappedParks.length) {
+          console.warn(`⚠️ WARNING: Only processed ${processedCount} of ${mappedParks.length} parks. This might indicate a timeout.`)
+        }
 
       } catch (error) {
         console.error('NPS API Error:', error)
