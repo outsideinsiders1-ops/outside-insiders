@@ -14,6 +14,7 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
     if (park) {
       loadBoundary()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [park])
 
   const loadBoundary = async () => {

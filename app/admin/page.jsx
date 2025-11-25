@@ -90,7 +90,8 @@ function AdminPanel() {
     if (activeTab === 'data-quality' && allParks.length === 0 && !qualityLoading) {
       loadAllParks();
     }
-  }, [activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, allParks.length, qualityLoading]);
 
   // Load agency options for dropdown
   const loadAgencyOptions = async () => {
