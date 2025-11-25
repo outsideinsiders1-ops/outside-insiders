@@ -14,6 +14,9 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(request) {
+  // CRITICAL: This is /api/sync route, NOT /api/scrape
+  // If you see "Scrape request received" in logs, Next.js is routing incorrectly
+  
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST,OPTIONS',
@@ -23,8 +26,9 @@ export async function POST(request) {
   try {
     // UNIQUE IDENTIFIER - If you see this, sync route is being called
     console.log('🔵🔵🔵 SYNC ROUTE CALLED (NOT SCRAPE) 🔵🔵🔵')
-    console.log('Request URL:', request.url)
-    console.log('Request method:', request.method)
+    console.log('🔵 Route: /api/sync')
+    console.log('🔵 Request URL:', request.url)
+    console.log('🔵 Request method:', request.method)
     
     const body = await request.json().catch(() => ({}))
     console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey })
