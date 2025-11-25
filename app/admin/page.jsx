@@ -974,7 +974,8 @@ function AdminPanel() {
       if (data.success) {
         alert(`Successfully deleted ${data.deleted} park(s)`);
         setSelectedParks(new Set());
-        // Reload analysis
+        // Reload parks and analysis
+        await loadAllParks();
         await loadQualityAnalysis();
       }
     } catch (err) {

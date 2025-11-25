@@ -21,11 +21,18 @@ export async function POST(request) {
   }
 
   try {
+    console.log('=== SYNC ROUTE CALLED ===')
+    console.log('Request URL:', request.url)
+    console.log('Request method:', request.method)
+    
     const body = await request.json().catch(() => ({}))
+    console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey })
+    
     const { sourceType, apiKey } = body
 
     // Validate required fields
     if (!sourceType) {
+      console.log('=== SYNC ROUTE: Missing sourceType ===')
       return Response.json({ 
         success: false, 
         error: 'Source type is required',
