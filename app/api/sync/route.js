@@ -73,8 +73,10 @@ export async function POST(request) {
       }, { status: 500, headers })
     }
     
-        // Handle NPS API
-        if (sourceType === 'NPS' || sourceType === 'National Park Service') {
+    console.log('=== SYNC ROUTE: Processing sourceType ===', sourceType)
+    
+    // Handle NPS API
+    if (sourceType === 'NPS' || sourceType === 'National Park Service') {
           try {
             console.log('=== NPS API SYNC START ===')
             console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
