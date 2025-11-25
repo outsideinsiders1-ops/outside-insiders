@@ -165,7 +165,6 @@ export async function POST(request) {
           try {
             // Log progress every 50 parks (reduced logging to avoid 256 log limit)
             if (processedCount % 50 === 0) {
-              const logCount = processedCount - lastLogCount
               console.log(`📊 Progress: ${processedCount}/${mappedParks.length} parks (${parksAdded} added, ${parksUpdated} updated, ${parksSkipped} skipped)`)
               lastLogCount = processedCount
             }

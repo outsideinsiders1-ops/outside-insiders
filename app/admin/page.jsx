@@ -734,6 +734,12 @@ function AdminPanel() {
         console.log('Parks Updated:', syncResultData.parksUpdated);
         
         setSyncResult(syncResultData);
+        setSyncError(null);
+        
+        // Save API configuration to localStorage for future use
+        if (syncApiKey.trim()) {
+          saveApiConfig(syncSourceType, syncApiKey);
+        }
         
         // If 0 parks found, show as warning
         if (syncResultData.parksFound === 0) {
