@@ -974,7 +974,9 @@ function AdminPanel() {
       if (data.success) {
         alert(`Successfully deleted ${data.deleted} park(s)`);
         setSelectedParks(new Set());
-        // Reload parks and analysis
+        // Clear and reload parks and analysis
+        setAllParks([]);
+        setFilteredParks([]);
         await loadAllParks();
         await loadQualityAnalysis();
       }
