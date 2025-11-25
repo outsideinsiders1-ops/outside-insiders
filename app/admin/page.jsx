@@ -647,6 +647,13 @@ function AdminPanel() {
         return;
       }
 
+      // Check if this is actually the scrape route response (wrong route)
+      if (data.route === 'SCRAPE_ROUTE' || (data.message && data.message.includes('TEST: Scraping'))) {
+        setSyncError('ERROR: Request was routed to /api/scrape instead of /api/sync. This is a Next.js routing issue. The Vercel logs should show red circles (🔴) instead of blue circles (🔵). Please try:\n1. Hard refresh the page (Cmd+Shift+R)\n2. Clear browser cache\n3. Redeploy on Vercel');
+        setSyncResult(null);
+        return;
+      }
+
       // Only show success if response.ok AND data.success is true
       if (data.success === true) {
         // Handle both old format (results object) and new format (direct properties)
