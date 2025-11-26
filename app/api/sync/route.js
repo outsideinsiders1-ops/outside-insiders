@@ -5,8 +5,8 @@
  */
 
 import { fetchAllNPSParks } from '../../../lib/utils/nps-api.js'
-import { fetchRecreationFacilities } from '../../../lib/utils/recreation-gov-api.js'
-import { mapNPSParksToSchema, mapRecreationGovFacilitiesToSchema } from '../../../lib/utils/api-field-mapper.js'
+import { fetchRecreationFacilities, fetchRecreationFacilityAddresses } from '../../../lib/utils/recreation-gov-api.js'
+import { mapNPSParksToSchema, mapRecreationGovFacilitiesToSchema, mapRecreationGovToParkSchema } from '../../../lib/utils/api-field-mapper.js'
 import { insertOrUpdatePark } from '../../../lib/utils/db-operations.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
 
