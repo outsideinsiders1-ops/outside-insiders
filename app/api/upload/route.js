@@ -104,6 +104,35 @@ export async function POST(request) {
           } else {
             console.log(`Reassembling ${totalChunks} chunks from base path: ${basePath}`)
             
+            // Estimate total file size from first chunk
+            let estimatedSize = 0
+            try {
+              const { data: firstChunk } = await supabaseServer.storage
+                .from('park-uploads')
+                .download(`${basePath}.chunk.0`)
+              if (firstChunk) {
+                const firstChunkSize = (await firstChunk.arrayBuffer()).byteLength
+                estimatedSize = firstChunkSize * totalChunks
+              }
+            } catch (e) {
+              console.warn('Could not estimate file size:', e)
+            }
+            
+            // Warn if file is very large (>1GB) - Vercel has memory limits
+            if (estimatedSize > 1024 * 1024 * 1024) {
+              const sizeGB = (estimatedSize / (1024 * 1024 * 1024)).toFixed(2)
+              console.warn(`⚠️ Large file detected: ~${sizeGB} GB. This may exceed server memory limits.`)
+              
+              // For files >1GB, we'll try but warn the user
+              if (estimatedSize > 2 * 1024 * 1024 * 1024) {
+                throw new Error(
+                  `File is too large (${sizeGB} GB) to process in a single request. ` +
+                  `Vercel serverless functions have memory limits. ` +
+                  `Please split the file into smaller parts (<1GB each) or use a different processing method.`
+                )
+              }
+            }
+            
             // Reassemble chunks using the sorted chunk files
             // We'll download chunks in order based on the sorted list
             const chunks = []
@@ -111,19 +140,45 @@ export async function POST(request) {
               const chunkPath = `${basePath}.chunk.${i}`
               console.log(`Downloading chunk ${i + 1}/${totalChunks}: ${chunkPath}`)
               
-              const { data, error } = await supabaseServer.storage
-                .from('park-uploads')
-                .download(chunkPath)
-              
-              if (error) {
-                throw new Error(`Failed to download chunk ${i}: ${error.message}`)
+              try {
+                const { data, error } = await supabaseServer.storage
+                  .from('park-uploads')
+                  .download(chunkPath)
+                
+                if (error) {
+                  throw new Error(`Failed to download chunk ${i + 1}/${totalChunks}: ${error.message}`)
+                }
+                
+                if (!data) {
+                  throw new Error(`Chunk ${i + 1}/${totalChunks} returned no data`)
+                }
+                
+                chunks.push(await data.arrayBuffer())
+                
+                // Log progress every 10 chunks
+                if ((i + 1) % 10 === 0) {
+                  console.log(`Downloaded ${i + 1}/${totalChunks} chunks (${Math.round((i + 1) / totalChunks * 100)}%)`)
+                }
+              } catch (error) {
+                console.error(`Error downloading chunk ${i + 1}:`, error)
+                throw new Error(`Failed to download chunk ${i + 1}/${totalChunks}: ${error.message}`)
               }
-              
-              chunks.push(await data.arrayBuffer())
             }
+            
+            console.log(`All ${totalChunks} chunks downloaded. Reassembling...`)
             
             // Combine chunks into single Blob
             const totalSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+            console.log(`Total file size: ${(totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB`)
+            
+            // Check memory constraints
+            if (totalSize > 1.5 * 1024 * 1024 * 1024) {
+              throw new Error(
+                `File size (${(totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB) exceeds server memory limits. ` +
+                `Please split the file into smaller parts (<1GB each).`
+              )
+            }
+            
             const combined = new Uint8Array(totalSize)
             let offset = 0
             
@@ -132,10 +187,16 @@ export async function POST(request) {
               offset += chunk.byteLength
             }
             
+            console.log('File reassembled successfully')
             const blob = new Blob([combined])
             
             // Clean up chunks after reassembly
-            await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)
+            try {
+              await cleanupChunks(supabaseServer, 'park-uploads', basePath, totalChunks)
+              console.log('Chunks cleaned up')
+            } catch (cleanupError) {
+              console.warn('Failed to cleanup chunks (non-fatal):', cleanupError)
+            }
             
             // Extract filename
             fileName = baseFileName || sourceName
@@ -161,10 +222,23 @@ export async function POST(request) {
           fileToProcess = new File([blob], fileName, { type: blob.type })
         }
       } catch (error) {
-        console.error('File download error:', error)
+        console.error('File download/reassembly error:', error)
+        const errorMessage = error.message || 'Unknown error'
+        
+        // Provide more helpful error messages
+        let userMessage = errorMessage
+        if (errorMessage.includes('memory') || errorMessage.includes('too large')) {
+          userMessage = errorMessage
+        } else if (errorMessage.includes('Failed to download chunk')) {
+          userMessage = `File reassembly failed: ${errorMessage}. The file may be too large or some chunks may be missing.`
+        } else {
+          userMessage = `Failed to process uploaded file: ${errorMessage}`
+        }
+        
         return Response.json({ 
           success: false, 
-          error: `Failed to download file from storage: ${error.message}` 
+          error: userMessage,
+          details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         }, { status: 400, headers })
       }
     }
