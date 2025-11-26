@@ -256,14 +256,100 @@ export async function POST(request) {
               }, { status: 400, headers })
             }
 
-            // Map to our schema
-            const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
+            // Map to our schema (initial mapping without addresses)
+            let mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
             console.log(`Mapped ${mappedParks.length} facilities to schema`)
             
             // Debug: Check sample and count missing fields
             const missingState = mappedParks.filter(p => !p.state).length
             const missingName = mappedParks.filter(p => !p.name).length
             console.log(`Facilities missing state: ${missingState}, missing name: ${missingName}`)
+            
+            // For facilities missing state, try to get it from addresses or coordinates
+            if (missingState > 0) {
+              console.log(`Fetching addresses for ${missingState} facilities missing state...`)
+              
+              const facilitiesNeedingState = facilities.filter((f, i) => !mappedParks[i].state)
+              let addressesFetched = 0
+              
+              // Fetch addresses in batches (process 100 at a time to avoid overwhelming the API)
+              const batchSize = 100
+              for (let i = 0; i < facilitiesNeedingState.length; i += batchSize) {
+                const batch = facilitiesNeedingState.slice(i, i + batchSize)
+                
+                // Fetch addresses for this batch in parallel (but limit concurrency)
+                const addressPromises = batch.map(async (facility) => {
+                  try {
+                    const addresses = await fetchRecreationFacilityAddresses(effectiveApiKey, facility.FacilityID)
+                    addressesFetched++
+                    
+                    // Remap this facility with addresses
+                    const facilityIndex = facilities.indexOf(facility)
+                    mappedParks[facilityIndex] = mapRecreationGovToParkSchema(facility, addresses)
+                    
+                    // Small delay to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 50))
+                  } catch (error) {
+                    // If address fetch fails, keep the original mapping (might have coords for reverse geocoding)
+                    console.warn(`Failed to fetch addresses for facility ${facility.FacilityID}:`, error.message)
+                  }
+                })
+                
+                await Promise.all(addressPromises)
+                
+                // Log progress
+                if ((i + batchSize) % 500 === 0 || i + batchSize >= facilitiesNeedingState.length) {
+                  console.log(`Fetched addresses for ${Math.min(i + batchSize, facilitiesNeedingState.length)}/${facilitiesNeedingState.length} facilities`)
+                }
+              }
+              
+              console.log(`Fetched addresses for ${addressesFetched} facilities`)
+              
+              // Re-check missing state after address fetch
+              const stillMissingState = mappedParks.filter(p => !p.state).length
+              console.log(`Facilities still missing state after address fetch: ${stillMissingState}`)
+              
+              // For facilities still missing state but with coordinates, use reverse geocoding
+              if (stillMissingState > 0) {
+                const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN
+                if (MAPBOX_TOKEN) {
+                  console.log(`Attempting reverse geocoding for ${stillMissingState} facilities with coordinates...`)
+                  
+                  let geocoded = 0
+                  for (let i = 0; i < mappedParks.length; i++) {
+                    const park = mappedParks[i]
+                    if (!park.state && park.latitude && park.longitude) {
+                      try {
+                        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&types=region&limit=1`
+                        const response = await fetch(url)
+                        if (response.ok) {
+                          const geoData = await response.json()
+                          if (geoData.features && geoData.features.length > 0) {
+                            // Extract state from context (US states are in context array)
+                            const context = geoData.features[0].context || []
+                            const region = context.find(c => c.id?.startsWith('region'))
+                            if (region && region.short_code) {
+                              // Mapbox returns state codes like "US-NC" or just "NC"
+                              const stateCode = region.short_code.replace('US-', '').toUpperCase()
+                              if (stateCode.length === 2) {
+                                mappedParks[i].state = stateCode
+                                geocoded++
+                              }
+                            }
+                          }
+                        }
+                        // Rate limiting: small delay between geocoding requests
+                        await new Promise(resolve => setTimeout(resolve, 100))
+                      } catch (error) {
+                        // Silently continue if geocoding fails
+                      }
+                    }
+                  }
+                  console.log(`Reverse geocoded state for ${geocoded} facilities`)
+                }
+              }
+            }
+            
             if (mappedParks.length > 0) {
               console.log('Sample mapped facility:', {
                 name: mappedParks[0].name,
