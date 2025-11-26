@@ -1,7 +1,7 @@
 {
-  "/api/scrape/route": "app/api/scrape/route.js",
-  "/api/admin/data-quality/update/route": "app/api/admin/data-quality/update/route.js",
   "/_not-found/page": "app/_not-found/page.js",
+  "/api/admin/data-quality/update/route": "app/api/admin/data-quality/update/route.js",
+  "/api/scrape-disabled/route": "app/api/scrape-disabled/route.js",
   "/api/admin/data-quality/route": "app/api/admin/data-quality/route.js",
   "/api/admin/geocode/route": "app/api/admin/geocode/route.js",
   "/api/sync/route": "app/api/sync/route.js",
