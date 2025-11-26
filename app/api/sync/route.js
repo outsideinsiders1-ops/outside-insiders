@@ -230,104 +230,99 @@ export async function POST(request) {
         }, { status: 500, headers })
       }
     }
-    // Handle Recreation.gov API
-    else if (sourceType === 'Recreation.gov' || sourceType === 'Recreation.gov API') {
-      try {
-        console.log('=== RECREATION.GOV API SYNC START ===')
-        console.log('API Key provided:', effectiveApiKey ? 'Yes' : 'No')
-        console.log('API Key length:', effectiveApiKey?.length || 0)
-        console.log('API Key preview:', effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : 'None')
-        
-        const facilities = await fetchRecreationFacilities(effectiveApiKey, {
-          onProgress: (progress) => {
-            console.log(`Recreation.gov API Progress: ${progress.fetched} facilities fetched${progress.total !== 'unknown' ? ` of ${progress.total}` : ''}`)
-          }
-        })
-
-        parksFound = facilities.length
-        console.log(`=== RECREATION.GOV API RESPONSE ===`)
-        console.log(`Total facilities fetched: ${parksFound}`)
-        console.log(`First facility sample:`, facilities[0] ? {
-          FacilityName: facilities[0].FacilityName,
-          FacilityID: facilities[0].FacilityID,
-          FacilityLatitude: facilities[0].FacilityLatitude,
-          FacilityLongitude: facilities[0].FacilityLongitude
-        } : 'No facilities')
-
-        if (parksFound === 0) {
-          console.error('=== RECREATION.GOV API ERROR: 0 FACILITIES RETURNED ===')
-          console.error('This could indicate:')
-          console.error('1. Invalid API key')
-          console.error('2. API rate limiting')
-          console.error('3. Network issue')
-          console.error('4. API endpoint changed')
-          return Response.json({
-            success: false,
-            error: 'No facilities found',
-            message: 'Recreation.gov API returned 0 facilities. Please check your API key and try again.',
-            details: 'This could indicate an authentication issue or the API returned no results.',
-            debug: {
-              apiKeyProvided: !!effectiveApiKey,
-              apiKeyLength: effectiveApiKey?.length || 0,
-              apiKeyPreview: effectiveApiKey ? `${effectiveApiKey.substring(0, 10)}...` : null
-            }
-          }, { status: 400, headers })
-        }
-
-        // Map to our schema
-        console.log('Mapping Recreation.gov facilities to schema...')
-        const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
-        console.log(`Mapped ${mappedParks.length} facilities to schema`)
-        console.log('Sample mapped facility:', mappedParks[0] ? {
-          name: mappedParks[0].name,
-          state: mappedParks[0].state,
-          agency: mappedParks[0].agency
-        } : 'No facilities to map')
-
-        // Process each park
-        console.log('Processing facilities (insert/update)...')
-        let processedCount = 0
-        for (const park of mappedParks) {
+        // Handle Recreation.gov API
+        else if (sourceType === 'Recreation.gov' || sourceType === 'Recreation.gov API') {
           try {
-            // Validate required fields
-            if (!park.name || !park.state) {
-              parksSkipped++
-              errors.push({
-                park: park.name || 'Unknown',
-                error: 'Missing required fields (name or state)'
-              })
-              console.warn(`Skipping facility (missing fields): ${park.name || 'Unknown'}`)
-              continue
-            }
-
-            // Insert or update park
-            const result = await insertOrUpdatePark(park, 'Recreation.gov')
-
-            if (result.action === 'added') {
-              parksAdded++
-              if (parksAdded % 10 === 0) {
-                console.log(`Added ${parksAdded} facilities so far...`)
+            console.log('=== RECREATION.GOV API SYNC START ===')
+            
+            const facilities = await fetchRecreationFacilities(effectiveApiKey, {
+              onProgress: (progress) => {
+                // Only log every 500 facilities to reduce log volume
+                if (progress.fetched % 500 === 0 || progress.complete) {
+                  console.log(`Recreation.gov API Progress: ${progress.fetched} facilities fetched`)
+                }
               }
-            } else if (result.action === 'updated') {
-              parksUpdated++
-              if (parksUpdated % 10 === 0) {
-                console.log(`Updated ${parksUpdated} facilities so far...`)
-              }
-            } else {
-              parksSkipped++
-            }
-            processedCount++
-          } catch (error) {
-            parksSkipped++
-            errors.push({
-              park: park.name || 'Unknown',
-              error: error.message || 'Failed to process facility'
             })
-            console.error(`Error processing Recreation.gov facility ${park.name}:`, error)
-          }
-        }
-        console.log(`=== RECREATION.GOV API SYNC COMPLETE ===`)
-        console.log(`Processed: ${processedCount}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
+
+            parksFound = facilities.length
+            console.log(`=== RECREATION.GOV API RESPONSE ===`)
+            console.log(`Total facilities fetched: ${parksFound}`)
+            
+            if (parksFound === 0) {
+              return Response.json({
+                success: false,
+                error: 'No facilities found',
+                message: 'Recreation.gov API returned 0 facilities. Please check your API key and try again.'
+              }, { status: 400, headers })
+            }
+
+            // Map to our schema
+            const mappedParks = mapRecreationGovFacilitiesToSchema(facilities)
+            console.log(`Mapped ${mappedParks.length} facilities to schema`)
+            
+            // Debug: Check sample and count missing fields
+            const missingState = mappedParks.filter(p => !p.state).length
+            const missingName = mappedParks.filter(p => !p.name).length
+            console.log(`Facilities missing state: ${missingState}, missing name: ${missingName}`)
+            if (mappedParks.length > 0) {
+              console.log('Sample mapped facility:', {
+                name: mappedParks[0].name,
+                state: mappedParks[0].state,
+                agency: mappedParks[0].agency,
+                hasCoords: !!(mappedParks[0].latitude && mappedParks[0].longitude)
+              })
+            }
+
+            // Process each park
+            let processedCount = 0
+            for (const park of mappedParks) {
+              processedCount++
+              try {
+                // Log progress every 500 parks
+                if (processedCount % 500 === 0) {
+                  console.log(`📊 Progress: ${processedCount}/${mappedParks.length} facilities (${parksAdded} added, ${parksUpdated} updated, ${parksSkipped} skipped)`)
+                }
+                
+                // Validate required fields
+                if (!park.name || !park.state) {
+                  parksSkipped++
+                  errors.push({
+                    park: park.name || 'Unknown',
+                    error: `Missing required fields - name: ${!!park.name}, state: ${!!park.state}`
+                  })
+                  continue
+                }
+
+                // Insert or update park
+                const result = await insertOrUpdatePark(park, 'Recreation.gov')
+
+                if (result.action === 'added') {
+                  parksAdded++
+                } else if (result.action === 'updated') {
+                  parksUpdated++
+                } else {
+                  parksSkipped++
+                }
+              } catch (error) {
+                parksSkipped++
+                errors.push({
+                  park: park.name || 'Unknown',
+                  error: error.message || 'Failed to process facility'
+                })
+                // Only log errors (not every skipped park) to reduce log volume
+                if (error.message.includes('timeout') || error.message.includes('Failed to')) {
+                  console.error(`❌ Error: "${park.name}" (${park.state || 'no state'}): ${error.message}`)
+                }
+                continue
+              }
+            }
+            console.log(`=== RECREATION.GOV API SYNC COMPLETE ===`)
+            console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
+            
+            // Log if we didn't process all parks
+            if (processedCount < mappedParks.length) {
+              console.warn(`⚠️ WARNING: Only processed ${processedCount} of ${mappedParks.length} facilities. This might indicate a timeout.`)
+            }
 
       } catch (error) {
         console.error('Recreation.gov API Error:', error)

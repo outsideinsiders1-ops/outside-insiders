@@ -45,23 +45,50 @@ export async function POST(request) {
       try {
         console.log(`Downloading file from storage: ${fileUrl}`)
         
-        // Check if this is a chunked upload (filePath will have .chunk.0 pattern)
+        // Check if this is a chunked upload
+        // Always check for chunks if filePath is provided, even if URL doesn't explicitly say it's chunked
         const filePath = formData.get('filePath') || null
-        const isChunked = filePath && (filePath.includes('.chunk.') || fileUrl.includes('.chunk.'))
         
-        if (isChunked && filePath) {
-          // Reassemble chunks from storage
-          console.log('Detected chunked upload, reassembling chunks...')
-          console.log('File path:', filePath)
-          
+        // If we have a filePath, check if chunks exist in storage
+        let isChunked = false
+        let basePath = null
+        let directory = 'uploads'
+        let baseFileName = null
+        
+        if (filePath) {
           // Extract base path (filePath is like "uploads/1234567890-file.zip")
           // Chunks will be "uploads/1234567890-file.zip.chunk.0", etc.
-          const basePath = filePath // No need to remove .chunk.X since filePath doesn't have it
+          basePath = filePath
           const pathParts = basePath.split('/')
-          const directory = pathParts.slice(0, -1).join('/') || 'uploads'
-          const baseFileName = pathParts[pathParts.length - 1]
+          directory = pathParts.slice(0, -1).join('/') || 'uploads'
+          baseFileName = pathParts[pathParts.length - 1]
           
-          console.log(`Listing files in directory: ${directory}, looking for chunks of: ${baseFileName}`)
+          // Check if chunks exist by listing the directory
+          try {
+            const { data: files } = await supabaseServer.storage
+              .from('park-uploads')
+              .list(directory)
+            
+            if (files && files.length > 0) {
+              // Check if any files match the chunk pattern
+              const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
+              const chunkFiles = files.filter(f => chunkPattern.test(f.name))
+              isChunked = chunkFiles.length > 0
+              
+              if (isChunked) {
+                console.log(`Detected ${chunkFiles.length} chunks for file: ${baseFileName}`)
+              }
+            }
+          } catch (listError) {
+            console.warn('Could not check for chunks, assuming regular file:', listError)
+            isChunked = false
+          }
+        }
+        
+        if (isChunked && basePath) {
+          // Reassemble chunks from storage
+          console.log('Detected chunked upload, reassembling chunks...')
+          console.log('File path:', basePath)
           
           // List all files in the directory to find chunks
           const { data: files, error: listError } = await supabaseServer.storage
@@ -72,8 +99,6 @@ export async function POST(request) {
             console.error('Error listing files:', listError)
             throw new Error(`Failed to list chunks: ${listError.message}`)
           }
-          
-          console.log(`Found ${files?.length || 0} files in directory`)
           
           // Count chunks that match our base filename (chunks are named: baseFileName.chunk.0, baseFileName.chunk.1, etc.)
           const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
