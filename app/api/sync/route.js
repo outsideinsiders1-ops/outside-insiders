@@ -267,12 +267,15 @@ export async function POST(request) {
             
             // For facilities missing state, try to get it from addresses or coordinates
             if (missingState > 0) {
-              console.log(`🔍 Fetching addresses for ${missingState} facilities missing state...`)
+              console.log(`🔍 ${missingState} facilities missing state. Attempting to extract state...`)
               
               // OPTIMIZATION: Since fetching 14,990 addresses would take too long,
               // use reverse geocoding first (faster) for facilities with coordinates
               const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN
+              console.log(`🗺️ Mapbox token available: ${MAPBOX_TOKEN ? 'Yes' : 'No'}`)
+              
               const facilitiesWithCoords = mappedParks.filter(p => !p.state && p.latitude && p.longitude)
+              console.log(`📍 Facilities with coordinates but no state: ${facilitiesWithCoords.length}`)
               
               if (MAPBOX_TOKEN && facilitiesWithCoords.length > 0) {
                 console.log(`🗺️ Using reverse geocoding for ${facilitiesWithCoords.length} facilities with coordinates...`)
@@ -313,6 +316,13 @@ export async function POST(request) {
                   }
                 }
                 console.log(`✅ Reverse geocoded state for ${geocoded} facilities`)
+              } else {
+                if (!MAPBOX_TOKEN) {
+                  console.log(`⚠️ Mapbox token not available - cannot use reverse geocoding`)
+                }
+                if (facilitiesWithCoords.length === 0) {
+                  console.log(`⚠️ No facilities with coordinates found - cannot use reverse geocoding`)
+                }
               }
               
               // After reverse geocoding, check how many still need addresses
