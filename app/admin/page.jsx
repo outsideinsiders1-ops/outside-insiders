@@ -1985,10 +1985,11 @@ function AdminPanel() {
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Name</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>State</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Agency</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Data Source</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Website</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Acres</th>
                           <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Quality</th>
-                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Source</th>
+                          <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #ddd', fontWeight: '600' }}>Priority</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2052,6 +2053,9 @@ function AdminPanel() {
                               }}
                               onCancel={() => setEditingCell(null)}
                             />
+                            <td style={{ padding: '12px', borderBottom: '1px solid #eee' }}>
+                              {park.data_source || 'N/A'}
+                            </td>
                             <EditableCell
                               parkId={park.id}
                               field="website"

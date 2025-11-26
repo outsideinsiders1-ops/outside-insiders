@@ -18,15 +18,35 @@ function MapUpdater({ center, zoom }) {
   return null
 }
 
-// Check WebGL support
+// Check WebGL support (improved for mobile browsers)
 function checkWebGLSupport() {
   try {
     const canvas = document.createElement('canvas')
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
-    return !!gl
-  } catch {
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') || canvas.getContext('webgl2')
+    
+    if (!gl) {
+      return false
+    }
+    
+    // Additional check: verify WebGL is actually functional
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+    if (debugInfo) {
+      const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
+      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+      console.log('WebGL Info:', { vendor, renderer })
+    }
+    
+    return true
+  } catch (error) {
+    console.warn('WebGL check failed:', error)
     return false
   }
+}
+
+// Check if device is mobile
+function isMobileDevice() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+         (typeof window !== 'undefined' && window.innerWidth < 768)
 }
 
 const MapView = ({ center, zoom, children }) => {
@@ -36,6 +56,9 @@ const MapView = ({ center, zoom, children }) => {
 
   // Validate Mapbox token on mount
   useEffect(() => {
+    // Check if mobile device
+    const mobile = isMobileDevice()
+    
     // Check WebGL support
     const hasWebGL = checkWebGLSupport()
     if (!hasWebGL) {
@@ -58,7 +81,9 @@ const MapView = ({ center, zoom, children }) => {
       return
     }
 
-    console.log('Mapbox token validated, WebGL supported - using Mapbox tiles')
+    // Note: Leaflet with Mapbox tiles works on mobile, but Mapbox GL JS requires WebGL
+    // For now, we're using Leaflet with Mapbox tiles, which should work on mobile
+    console.log(`Mapbox token validated, WebGL supported - using Mapbox tiles${mobile ? ' (mobile device)' : ''}`)
   }, [MAPBOX_TOKEN])
 
   // Ensure we have valid center and zoom
