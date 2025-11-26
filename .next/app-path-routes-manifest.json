@@ -1,11 +1,11 @@
 {
   "/_not-found/page": "/_not-found",
-  "/api/admin/data-quality/update/route": "/api/admin/data-quality/update",
   "/api/scrape-disabled/route": "/api/scrape-disabled",
-  "/api/admin/data-quality/route": "/api/admin/data-quality",
+  "/api/admin/data-quality/update/route": "/api/admin/data-quality/update",
   "/api/admin/geocode/route": "/api/admin/geocode",
+  "/api/admin/data-quality/route": "/api/admin/data-quality",
   "/api/sync/route": "/api/sync",
   "/api/upload/route": "/api/upload",
-  "/admin/page": "/admin",
-  "/page": "/"
+  "/page": "/",
+  "/admin/page": "/admin"
 }

@@ -256,70 +256,97 @@ export async function POST(request) {
               }, { status: 400, headers })
             }
 
-            // STEP 1: Fetch addresses for ALL facilities first (to get state codes)
-            // This is more reliable than reverse geocoding and ensures we have state for all parks
-            console.log(`📮 Fetching addresses for all ${facilities.length} facilities to extract state codes...`)
+            // STEP 1: First, check if facilities have state in the main response
+            // Many facilities have FacilityState in the main API response
+            let facilitiesWithState = 0
+            facilities.forEach(f => {
+              if (f.FacilityState) facilitiesWithState++
+            })
+            console.log(`📍 Facilities with state in main response: ${facilitiesWithState}/${facilities.length}`)
             
-            const facilityAddressMap = new Map() // Map<FacilityID, addresses[]>
-            let addressesFetched = 0
-            const batchSize = 100 // Process 100 facilities at a time
+            // STEP 2: Map facilities to park schema (check FacilityState first)
+            let mappedParks = facilities.map(facility => {
+              return mapRecreationGovToParkSchema(facility, []) // Try without addresses first
+            })
             
-            for (let i = 0; i < facilities.length; i += batchSize) {
-              const batch = facilities.slice(i, i + batchSize)
+            // Check how many have state after initial mapping
+            let missingState = mappedParks.filter(p => !p.state).length
+            console.log(`📍 Facilities with state after initial mapping: ${mappedParks.length - missingState}/${mappedParks.length}`)
+            
+            // STEP 3: Only fetch addresses for facilities missing state (much smaller number)
+            if (missingState > 0 && missingState < 5000) { // Only if reasonable number
+              console.log(`📮 Fetching addresses for ${missingState} facilities missing state...`)
               
-              // Fetch addresses for this batch in parallel
-              const addressPromises = batch.map(async (facility) => {
-                try {
-                  const addresses = await fetchRecreationFacilityAddresses(effectiveApiKey, facility.FacilityID)
-                  if (addresses && addresses.length > 0) {
-                    facilityAddressMap.set(facility.FacilityID, addresses)
-                    addressesFetched++
+              const facilityAddressMap = new Map()
+              let addressesFetched = 0
+              const facilitiesNeedingAddresses = facilities.filter((f, i) => !mappedParks[i].state)
+              const batchSize = 50 // Smaller batches for address fetching
+              
+              for (let i = 0; i < facilitiesNeedingAddresses.length; i += batchSize) {
+                const batch = facilitiesNeedingAddresses.slice(i, i + batchSize)
+                
+                const addressPromises = batch.map(async (facility) => {
+                  try {
+                    const addresses = await fetchRecreationFacilityAddresses(effectiveApiKey, facility.FacilityID)
+                    if (addresses && addresses.length > 0) {
+                      facilityAddressMap.set(facility.FacilityID, addresses)
+                      addressesFetched++
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 20))
+                  } catch {
+                    // Silently continue
                   }
-                  // Small delay to avoid rate limiting
-                  await new Promise(resolve => setTimeout(resolve, 20))
-                } catch {
-                  // If address fetch fails, facility will be mapped without addresses
-                  // (we'll try reverse geocoding or skip if no state)
+                })
+                
+                await Promise.all(addressPromises)
+                
+                if ((i + batchSize) % 500 === 0 || i + batchSize >= facilitiesNeedingAddresses.length) {
+                  console.log(`📮 Fetched addresses for ${Math.min(i + batchSize, facilitiesNeedingAddresses.length)}/${facilitiesNeedingAddresses.length} facilities (${addressesFetched} with addresses)`)
+                }
+              }
+              
+              console.log(`✅ Fetched addresses for ${addressesFetched} facilities`)
+              
+              // Remap facilities that got addresses
+              facilities.forEach((facility, i) => {
+                if (!mappedParks[i].state) {
+                  const addresses = facilityAddressMap.get(facility.FacilityID) || []
+                  if (addresses.length > 0) {
+                    mappedParks[i] = mapRecreationGovToParkSchema(facility, addresses)
+                  }
                 }
               })
-              
-              await Promise.all(addressPromises)
-              
-              // Log progress every 1000 facilities
-              if ((i + batchSize) % 1000 === 0 || i + batchSize >= facilities.length) {
-                console.log(`📮 Fetched addresses for ${Math.min(i + batchSize, facilities.length)}/${facilities.length} facilities (${addressesFetched} with addresses)`)
-              }
+            } else if (missingState >= 5000) {
+              console.log(`⚠️ Too many facilities (${missingState}) missing state. Skipping address fetch to avoid timeout.`)
             }
-            
-            console.log(`✅ Fetched addresses for ${addressesFetched} facilities`)
-            
-            // STEP 2: Map facilities to park schema WITH addresses
-            const mappedParks = facilities.map(facility => {
-              const addresses = facilityAddressMap.get(facility.FacilityID) || []
-              return mapRecreationGovToParkSchema(facility, addresses)
-            })
             
             console.log(`Mapped ${mappedParks.length} facilities to schema`)
             
             // Debug: Check how many have state after address fetching
-            const missingState = mappedParks.filter(p => !p.state).length
+            missingState = mappedParks.filter(p => !p.state).length
             const missingName = mappedParks.filter(p => !p.name).length
             console.log(`Facilities with state: ${mappedParks.length - missingState}/${mappedParks.length}, missing name: ${missingName}`)
             
-            // STEP 3: For facilities still missing state, try reverse geocoding if they have coordinates
+            // STEP 4: For facilities still missing state, try reverse geocoding in PARALLEL batches
             if (missingState > 0) {
               console.log(`📍 ${missingState} facilities still missing state. Attempting reverse geocoding for facilities with coordinates...`)
               
               const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN
-              const facilitiesWithCoords = mappedParks.filter(p => !p.state && p.latitude && p.longitude)
+              const facilitiesNeedingGeocode = mappedParks
+                .map((park, i) => ({ park, index: i }))
+                .filter(({ park }) => !park.state && park.latitude && park.longitude)
               
-              if (MAPBOX_TOKEN && facilitiesWithCoords.length > 0) {
-                console.log(`🗺️ Using reverse geocoding for ${facilitiesWithCoords.length} facilities with coordinates...`)
+              if (MAPBOX_TOKEN && facilitiesNeedingGeocode.length > 0) {
+                console.log(`🗺️ Using parallel reverse geocoding for ${facilitiesNeedingGeocode.length} facilities with coordinates...`)
                 
+                // Process in parallel batches to speed up (Mapbox allows concurrent requests)
+                const geocodeBatchSize = 50 // Process 50 at a time in parallel
                 let geocoded = 0
-                for (let i = 0; i < mappedParks.length; i++) {
-                  const park = mappedParks[i]
-                  if (!park.state && park.latitude && park.longitude) {
+                
+                for (let i = 0; i < facilitiesNeedingGeocode.length; i += geocodeBatchSize) {
+                  const batch = facilitiesNeedingGeocode.slice(i, i + geocodeBatchSize)
+                  
+                  const geocodePromises = batch.map(async ({ park, index }) => {
                     try {
                       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&types=region&limit=1`
                       const response = await fetch(url)
@@ -331,22 +358,32 @@ export async function POST(request) {
                           if (region && region.short_code) {
                             const stateCode = region.short_code.replace('US-', '').toUpperCase()
                             if (stateCode.length === 2) {
-                              mappedParks[i].state = stateCode
-                              geocoded++
+                              mappedParks[index].state = stateCode
+                              return true
                             }
                           }
                         }
                       }
-                      await new Promise(resolve => setTimeout(resolve, 50))
-                      
-                      if (geocoded % 500 === 0 && geocoded > 0) {
-                        console.log(`🗺️ Reverse geocoded ${geocoded}/${facilitiesWithCoords.length} facilities`)
-                      }
                     } catch {
-                      // Silently continue if geocoding fails
+                      // Silently continue
                     }
+                    return false
+                  })
+                  
+                  const results = await Promise.all(geocodePromises)
+                  geocoded += results.filter(r => r).length
+                  
+                  // Log progress every 500
+                  if ((i + geocodeBatchSize) % 500 === 0 || i + geocodeBatchSize >= facilitiesNeedingGeocode.length) {
+                    console.log(`🗺️ Reverse geocoded ${geocoded}/${facilitiesNeedingGeocode.length} facilities`)
+                  }
+                  
+                  // Small delay between batches to avoid overwhelming Mapbox
+                  if (i + geocodeBatchSize < facilitiesNeedingGeocode.length) {
+                    await new Promise(resolve => setTimeout(resolve, 100))
                   }
                 }
+                
                 console.log(`✅ Reverse geocoded state for ${geocoded} facilities`)
               }
               
