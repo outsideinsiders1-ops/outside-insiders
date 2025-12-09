@@ -330,64 +330,25 @@ async function main() {
       const fileData = readFileSync(filePath)
       const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'file.zip'
       
-      // Parse file directly based on extension
-      console.log('🔍 Parsing file...')
-      let geojson
-      
-      if (fileName.toLowerCase().endsWith('.zip') || fileName.toLowerCase().endsWith('.shp')) {
-        // Parse shapefile - create a File-like object
-        const fileLike = {
-          name: fileName,
-          arrayBuffer: async () => fileData.buffer
-        }
-        geojson = await parseShapefile(fileLike)
-      } else if (fileName.toLowerCase().endsWith('.geojson') || fileName.toLowerCase().endsWith('.json')) {
-        // Parse GeoJSON
-        const text = fileData.toString('utf-8')
-        geojson = JSON.parse(text)
-      } else {
-        throw new Error(`Unsupported file type: ${fileName}. Expected .zip, .shp, .geojson, or .json`)
+      // Create a File-like object for parsing
+      file = {
+        name: fileName,
+        arrayBuffer: async () => fileData.buffer,
+        text: async () => fileData.toString('utf-8')
       }
-      
-      if (!geojson.type || !geojson.features) {
-        throw new Error('Invalid GeoJSON format')
-      }
-      
-      console.log(`✅ Parsed ${geojson.features.length} features`)
-      
-      // Process and upload
-      const results = await processAndUpload(
-        geojson,
-        options.sourceType,
-        options.sourceName,
-        options.defaultState
-      )
-      
-      console.log('\n' + '='.repeat(50))
-      console.log('✅ PROCESSING COMPLETE')
-      console.log('='.repeat(50))
-      console.log(`📊 Total parks: ${results.total}`)
-      console.log(`➕ Added: ${results.added}`)
-      console.log(`🔄 Updated: ${results.updated}`)
-      console.log(`⏭️  Skipped: ${results.skipped}`)
-      console.log('')
-      
-      return
     }
     
-    // For storage files, parse after download
+    // Parse file
     console.log('🔍 Parsing file...')
     let geojson
     
     if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.shp')) {
       geojson = await parseShapefile(file)
-    } else {
+    } else if (file.name.toLowerCase().endsWith('.geojson') || file.name.toLowerCase().endsWith('.json')) {
       const text = await file.text()
       geojson = JSON.parse(text)
-    }
-    
-    if (!geojson.type || !geojson.features) {
-      throw new Error('Invalid GeoJSON format')
+    } else {
+      throw new Error(`Unsupported file type: ${file.name}. Expected .zip, .shp, .geojson, or .json`)
     }
     
     if (!geojson.type || !geojson.features) {
