@@ -126,7 +126,7 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
         if (map.getLayer('spiderfy-layer')) map.removeLayer('spiderfy-layer')
         if (map.getSource('spiderfy-source')) map.removeSource('spiderfy-source')
         if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
-      } catch (err) {
+      } catch {
         // Ignore errors if layers don't exist
       }
       
