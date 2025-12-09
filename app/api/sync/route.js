@@ -340,15 +340,25 @@ export async function POST(request) {
                 console.log(`🗺️ Using parallel reverse geocoding for ${facilitiesNeedingGeocode.length} facilities with coordinates...`)
                 
                 // Process in smaller batches with rate limiting and exponential backoff
-                const geocodeBatchSize = 10 // Reduced from 50 to avoid rate limits
+                // Further reduced batch size to avoid timeout (Vercel has 300s limit)
+                const geocodeBatchSize = 5 // Very small batches to avoid timeout
                 let geocoded = 0
                 let rateLimitHits = 0
-                const maxRateLimitHits = 5 // Stop if we hit rate limit 5 times in a row
+                const maxRateLimitHits = 3 // Stop if we hit rate limit 3 times in a row
+                const maxGeocodeTime = 240000 // Stop geocoding after 4 minutes to save time for DB operations
+                const startGeocodeTime = Date.now()
                 
                 for (let i = 0; i < facilitiesNeedingGeocode.length; i += geocodeBatchSize) {
                   // Check if we've hit too many rate limits
                   if (rateLimitHits >= maxRateLimitHits) {
                     console.warn(`⚠️ Stopping geocoding after ${rateLimitHits} consecutive rate limit hits. ${facilitiesNeedingGeocode.length - i} facilities remaining.`)
+                    break
+                  }
+                  
+                  // Check if we're running out of time
+                  const elapsed = Date.now() - startGeocodeTime
+                  if (elapsed > maxGeocodeTime) {
+                    console.warn(`⚠️ Stopping geocoding due to time limit (${Math.round(elapsed/1000)}s elapsed). ${facilitiesNeedingGeocode.length - i} facilities remaining.`)
                     break
                   }
                   

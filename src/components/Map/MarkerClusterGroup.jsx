@@ -3,6 +3,8 @@
 // Mapbox GL JS clustering implementation
 
 import React, { useEffect } from 'react'
+import { normalizeAgency } from '../../utils/helpers'
+import { config } from '../../config/settings'
 
 const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
   const sourceId = 'parks-cluster-source'
@@ -14,27 +16,35 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
     if (!map || !mapLoaded || !parks || parks.length === 0) return
 
     // Convert parks to GeoJSON - ensure all park data is in properties
+    // Also normalize agency for color mapping
     const geojson = {
       type: 'FeatureCollection',
-      features: parks.map(park => ({
-        type: 'Feature',
-        properties: {
-          // Core fields
-          id: park.id,
-          name: park.name,
-          agency: park.agency,
-          state: park.state,
-          latitude: park.latitude,
-          longitude: park.longitude,
-          distance: park.distance,
-          // Include all other park properties
-          ...park
-        },
-        geometry: {
-          type: 'Point',
-          coordinates: [park.longitude, park.latitude]
+      features: parks.map(park => {
+        const normalized = normalizeAgency(park.agency)
+        const color = config.markerColors[normalized] || config.markerColors.FEDERAL
+        
+        return {
+          type: 'Feature',
+          properties: {
+            // Core fields
+            id: park.id,
+            name: park.name,
+            agency: park.agency,
+            normalizedAgency: normalized, // For color mapping
+            markerColor: color, // Pre-computed color
+            state: park.state,
+            latitude: park.latitude,
+            longitude: park.longitude,
+            distance: park.distance,
+            // Include all other park properties
+            ...park
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [park.longitude, park.latitude]
+          }
         }
-      }))
+      })
     }
 
     // Add source
@@ -101,7 +111,7 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       })
     }
 
-    // Add unclustered points
+    // Add unclustered points with colors by agency
     if (!map.getLayer(unclusteredLayerId)) {
       map.addLayer({
         id: unclusteredLayerId,
@@ -109,7 +119,7 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
         source: sourceId,
         filter: ['!', ['has', 'point_count']],
         paint: {
-          'circle-color': '#4a7c2f',
+          'circle-color': ['get', 'markerColor'], // Use pre-computed color from properties
           'circle-radius': 10,
           'circle-stroke-width': 3,
           'circle-stroke-color': '#fff',

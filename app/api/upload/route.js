@@ -612,10 +612,25 @@ export async function POST(request) {
     
   } catch (error) {
     console.error('Upload API Error:', error)
+    console.error('Error stack:', error.stack)
+    
+    // Provide more detailed error messages
+    let errorMessage = error.message || 'Unknown error processing file'
+    let statusCode = 500
+    
+    // Check for specific error types
+    if (error.message && error.message.includes('too large')) {
+      statusCode = 400
+    } else if (error.message && (error.message.includes('memory') || error.message.includes('timeout'))) {
+      statusCode = 413 // Payload Too Large
+      errorMessage = `File processing failed: ${error.message}. The file may be too large for serverless processing. Consider splitting into smaller files.`
+    }
+    
     return Response.json({ 
       success: false, 
-      error: error.message || 'Unknown error processing file' 
-    }, { status: 500, headers })
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: statusCode, headers })
   }
 }
 

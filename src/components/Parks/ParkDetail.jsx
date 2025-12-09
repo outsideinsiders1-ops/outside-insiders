@@ -127,7 +127,7 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
         </div>
 
         {/* Amenities */}
-        {park.amenities && park.amenities.length > 0 && (
+        {park.amenities && Array.isArray(park.amenities) && park.amenities.length > 0 && (
           <div className="detail-section">
             <h3>🏕️ Amenities</h3>
             <div className="activities-tags">
@@ -139,7 +139,7 @@ const ParkDetail = ({ park, onClose, onBoundaryToggle }) => {
         )}
 
         {/* Activities */}
-        {park.activities && park.activities.length > 0 && (
+        {park.activities && Array.isArray(park.activities) && park.activities.length > 0 && (
           <div className="detail-section">
             <h3>🥾 Activities</h3>
             <div className="activities-tags">
