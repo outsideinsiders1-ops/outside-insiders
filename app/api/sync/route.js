@@ -241,7 +241,7 @@ export async function POST(request) {
               // Get all existing Recreation.gov parks
               const { data: existingParks, error: fetchError } = await supabaseServer
                 .from('parks')
-                .select('id, name, source_id, state, latitude, longitude, description, phone, email, website')
+                .select('id, name, source_id, state, latitude, longitude, description, phone, email, website, activities, amenities')
                 .eq('data_source', 'Recreation.gov API')
                 .not('source_id', 'is', null)
                 .limit(1000) // Process in batches to avoid timeout
