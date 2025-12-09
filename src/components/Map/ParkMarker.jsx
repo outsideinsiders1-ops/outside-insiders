@@ -1,99 +1,85 @@
 'use client'
 // src/components/Map/ParkMarker.jsx
-// Individual park marker component
+// Mapbox GL JS marker implementation
 
-import React, { useRef, useEffect } from 'react'
-import { Marker, Popup } from 'react-leaflet'
-import L from 'leaflet'
+import React, { useEffect, useRef } from 'react'
+import mapboxgl from 'mapbox-gl'
 import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
 
-// Create custom icon based on park type
-function createIcon(agency) {
-  const normalized = normalizeAgency(agency)
-  const color = config.markerColors[normalized] || config.markerColors.FEDERAL
-  
-  return L.divIcon({
-    className: 'custom-marker',
-    html: `
-      <div style="
-        background-color: ${color};
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        border: 3px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-      "></div>
-    `,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -10]
-  })
-}
-
-const ParkMarker = ({ park, onDetailsClick }) => {
-  const icon = createIcon(park.agency)
+const ParkMarker = ({ park, onDetailsClick, map, mapLoaded }) => {
   const markerRef = useRef(null)
-  
+  const popupRef = useRef(null)
+
   useEffect(() => {
-    if (markerRef.current) {
-      const marker = markerRef.current
-      marker.on('popupopen', () => {
-        // Store reference to popup for closing
-        marker._popup = marker.getPopup()
-      })
-    }
-  }, [])
-  
-  const handleViewDetails = (e) => {
-    e.stopPropagation()
+    if (!map || !mapLoaded || !park.latitude || !park.longitude) return
+
+    // Create marker element
+    const el = document.createElement('div')
+    el.className = 'park-marker'
     
-    // Close the popup if it's open
-    if (markerRef.current) {
-      const marker = markerRef.current
-      if (marker.isPopupOpen()) {
-        marker.closePopup()
+    const normalized = normalizeAgency(park.agency)
+    const color = config.markerColors[normalized] || config.markerColors.FEDERAL
+    
+    el.style.cssText = `
+      background-color: ${color};
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      cursor: pointer;
+    `
+
+    // Create popup
+    const popup = new mapboxgl.Popup({ offset: 25, closeOnClick: false })
+      .setHTML(`
+        <div class="popup-content">
+          <h3>${park.name || 'Unnamed Park'}</h3>
+          ${park.distance ? `<p><strong>Distance:</strong> ${park.distance.toFixed(1)} miles</p>` : ''}
+          <p><strong>State:</strong> ${park.state || 'N/A'}</p>
+          <p><strong>Type:</strong> ${getAgencyFullName(park.agency)}</p>
+          <button class="detail-button" data-park-id="${park.id}">View Details</button>
+        </div>
+      `)
+
+    // Create marker
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat([park.longitude, park.latitude])
+      .setPopup(popup)
+      .addTo(map)
+
+    markerRef.current = marker
+    popupRef.current = popup
+
+    // Handle popup button click
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (onDetailsClick) {
+        onDetailsClick(park)
+      }
+    })
+
+    // Handle popup button click
+    popup.getElement().addEventListener('click', (e) => {
+      if (e.target.classList.contains('detail-button')) {
+        e.stopPropagation()
+        if (onDetailsClick) {
+          onDetailsClick(park)
+          popup.remove()
+        }
+      }
+    })
+
+    // Cleanup
+    return () => {
+      if (markerRef.current) {
+        markerRef.current.remove()
       }
     }
-    
-    // Open detail panel
-    onDetailsClick(park)
-  }
-  
-  return (
-    <Marker
-      ref={markerRef}
-      position={[park.latitude, park.longitude]}
-      icon={icon}
-    >
-      <Popup>
-        <div className="popup-content">
-          <h3>{park.name}</h3>
-          
-          {park.distance && (
-            <p>
-              <strong>Distance:</strong> {park.distance.toFixed(1)} miles
-            </p>
-          )}
-          
-          <p>
-            <strong>State:</strong> {park.state}
-          </p>
-          
-          <p>
-            <strong>Type:</strong> {getAgencyFullName(park.agency)}
-          </p>
-          
-          <button 
-            className="detail-button"
-            onClick={handleViewDetails}
-          >
-            View Details
-          </button>
-        </div>
-      </Popup>
-    </Marker>
-  )
+  }, [map, mapLoaded, park, onDetailsClick])
+
+  return null
 }
 
 export default ParkMarker

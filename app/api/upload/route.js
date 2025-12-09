@@ -196,11 +196,13 @@ export async function POST(request) {
             const totalSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
             console.log(`Total file size: ${(totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB`)
             
-            // Check memory constraints
-            if (totalSize > 1.5 * 1024 * 1024 * 1024) {
+            // Check memory constraints (Vercel serverless functions have ~1GB memory limit)
+            // We use 1.2GB as a safe limit to leave room for processing
+            if (totalSize > 1.2 * 1024 * 1024 * 1024) {
               throw new Error(
                 `File size (${(totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB) exceeds server memory limits. ` +
-                `Please split the file into smaller parts (<1GB each).`
+                `Vercel serverless functions have memory constraints. ` +
+                `Please split the file into smaller parts (<1GB each) or contact support for assistance with very large files.`
               )
             }
             
@@ -318,204 +320,48 @@ export async function POST(request) {
     
     console.log(`Processing ${features.length} features from ${sourceName}`)
     
-    for (let i = 0; i < features.length; i++) {
-      const feature = features[i]
+    // For very large files, process in batches to avoid memory issues
+    const BATCH_SIZE = 1000
+    const totalBatches = Math.ceil(features.length / BATCH_SIZE)
+    
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const batchStart = batchIndex * BATCH_SIZE
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, features.length)
+      const batch = features.slice(batchStart, batchEnd)
       
-      // Log progress for large files (every 100 features)
-      if (features.length > 100 && i % 100 === 0) {
-        console.log(`Processing feature ${i + 1} of ${features.length}...`)
-      }
-      if (!feature.geometry || !feature.properties) continue
+      console.log(`Processing batch ${batchIndex + 1}/${totalBatches} (features ${batchStart + 1}-${batchEnd} of ${features.length})...`)
       
-      // Extract coordinates from geometry
-      let latitude = null
-      let longitude = null
-      let geometry = null
-      
-      if (feature.geometry.type === 'Point' && feature.geometry.coordinates) {
-        // Point geometry: [longitude, latitude]
-        longitude = feature.geometry.coordinates[0]
-        latitude = feature.geometry.coordinates[1]
-        // For points, store as GeoJSON for geometry column
-        geometry = feature.geometry
-      } else if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
-        // Polygon geometry: calculate centroid for lat/lng
-        const coords = feature.geometry.coordinates
-        let allLngs = []
-        let allLats = []
+      for (let i = 0; i < batch.length; i++) {
+        const feature = batch[i]
+        const globalIndex = batchStart + i
         
-        if (feature.geometry.type === 'Polygon') {
-          for (const ring of coords) {
-            for (const coord of ring) {
-              allLngs.push(coord[0])
-              allLats.push(coord[1])
-            }
-          }
-        } else if (feature.geometry.type === 'MultiPolygon') {
-          for (const polygon of coords) {
-            for (const ring of polygon) {
-              for (const coord of ring) {
-                allLngs.push(coord[0])
-                allLats.push(coord[1])
-              }
-            }
-          }
-        }
+        if (!feature.geometry || !feature.properties) continue
+      
+        // Extract coordinates from geometry
+        let latitude = null
+        let longitude = null
+        let geometry = null
         
-        if (allLngs.length > 0 && allLats.length > 0) {
-          longitude = allLngs.reduce((a, b) => a + b, 0) / allLngs.length
-          latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
-        }
-        
-        // Simplify geometry to reduce file size (~500 feet accuracy)
-        // This significantly reduces point count while maintaining visual accuracy
-        const simplifiedGeometry = simplifyBoundary(feature.geometry, 152) // 152 meters = ~500 feet
-        geometry = simplifiedGeometry
-      }
-      
-      // Extract properties and map to our schema
-      const props = feature.properties
-      const mappedProps = mapPropertiesToParkSchema(props)
-      
-      // Use defaultState if state is not in the file
-      if (!mappedProps.state && defaultState) {
-        mappedProps.state = defaultState
-      }
-      
-      // Normalize state to state code for consistency (e.g., "Georgia" -> "GA")
-      if (mappedProps.state) {
-        mappedProps.state = normalizeStateToCode(mappedProps.state)
-      }
-      
-      // CRITICAL: Derive agency from sourceType if not found in file
-      // Agency is REQUIRED (NOT NULL) in database schema
-      if (!mappedProps.agency || mappedProps.agency === '') {
-        const stateCode = mappedProps.state || normalizeStateToCode(defaultState) || ''
-        if (sourceType && stateCode) {
-          // Derive agency name from sourceType + state code
-          const agencyMap = {
-            'State Agency': `${stateCode} State Parks`,
-            'Public State': `${stateCode} State Parks`,
-            'County Agency': `${stateCode} County Parks`,
-            'City Agency': `${stateCode} City Parks`,
-            'Public Federal': 'Federal Agency',
-            'Federal Agency': 'Federal Agency'
-          }
-          mappedProps.agency = agencyMap[sourceType] || sourceType
-          console.log(`Derived agency "${mappedProps.agency}" from sourceType "${sourceType}" and state "${stateCode}"`)
-        } else {
-          // Fallback to sourceType if no state
-          mappedProps.agency = sourceType || 'Unknown Agency'
-        }
-      }
-      
-      // Filter ParkServe parks: only include if ParkAccess === 3 (Open Access)
-      if (mappedProps._parkAccess !== undefined && mappedProps._parkAccess !== null) {
-        const parkAccess = String(mappedProps._parkAccess).trim()
-        if (parkAccess !== '3' && parkAccess !== '3.0') {
-          console.log(`Skipping park ${mappedProps.name}: ParkAccess is ${parkAccess}, not 3 (Open Access)`)
-          continue // Skip this park
-        }
-      }
-      // Remove internal filter field
-      delete mappedProps._parkAccess
-      
-      // Set data_source field
-      if (!mappedProps.data_source) {
-        mappedProps.data_source = sourceType || sourceName
-      }
-      
-      // Ensure activities and amenities are JSON arrays (not strings)
-      if (mappedProps.activities && !Array.isArray(mappedProps.activities)) {
-        mappedProps.activities = [mappedProps.activities]
-      }
-      if (mappedProps.amenities && !Array.isArray(mappedProps.amenities)) {
-        mappedProps.amenities = [mappedProps.amenities]
-      }
-      
-      // Log unmapped properties for debugging (only for first few features to avoid spam)
-      if (i < 5) {
-        logUnmappedProperties(props)
-      }
-      
-      // Validate and fix geometry
-      let geometryValue = null
-      if (geometry) {
-        try {
-          // Validate geometry structure
-          const validation = validateGeometry(geometry)
-          if (!validation.valid) {
-            console.warn(`Park ${mappedProps.name} has invalid geometry: ${validation.error}`)
-            // Try to fix common issues
-            const fixed = fixGeometry(geometry)
-            const fixedValidation = validateGeometry(fixed)
-            if (fixedValidation.valid) {
-              geometry = fixed
-              console.log(`Fixed geometry for ${mappedProps.name}`)
-            } else {
-              console.warn(`Could not fix geometry for ${mappedProps.name}, skipping geometry`)
-              geometry = null
-            }
-          }
-          
-          // Convert to WKT format for PostGIS geography column
-          if (geometry) {
-            const wktValidation = validateWKT(geometry)
-            if (wktValidation.valid) {
-              geometryValue = geojsonToWKT(geometry, 4326) // SRID 4326 (WGS84)
-              if (!geometryValue) {
-                console.warn(`Failed to convert geometry to WKT for ${mappedProps.name}`)
-              }
-            } else {
-              console.warn(`Geometry validation failed for ${mappedProps.name}: ${wktValidation.error}`)
-            }
-          }
-        } catch (err) {
-          console.warn(`Failed to process geometry for ${mappedProps.name}:`, err)
-          geometryValue = null
-        }
-      }
-      
-      // Get area/acres for grouping (keep largest parcel)
-      const acres = mappedProps.acres || 
-        (props.GIS_Acres ? parseFloat(props.GIS_Acres) : null) ||
-        (props.acres ? parseFloat(props.acres) : null) ||
-        (props.AREA ? parseFloat(props.AREA) : null) ||
-        0
-      
-      const park = {
-        ...mappedProps,
-        latitude,
-        longitude,
-        acres,
-        // Store geometry as WKT string for PostGIS geography column
-        ...(geometryValue && { geometry: geometryValue }),
-      }
-      
-      // Validate required fields
-      if (!park.name || park.name === 'Unnamed Park') {
-        console.warn('Skipping feature with no name:', feature)
-        continue
-      }
-      
-      // CRITICAL: Parks must have coordinates to display on map
-      // If coordinates are missing but we have geometry, try to calculate centroid
-      if ((!park.latitude || !park.longitude) && geometry) {
-        console.log(`Park ${park.name} missing coordinates but has geometry - calculating centroid...`)
-        // Recalculate from geometry if we have it
-        if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
-          const coords = geometry.coordinates
+        if (feature.geometry.type === 'Point' && feature.geometry.coordinates) {
+          // Point geometry: [longitude, latitude]
+          longitude = feature.geometry.coordinates[0]
+          latitude = feature.geometry.coordinates[1]
+          // For points, store as GeoJSON for geometry column
+          geometry = feature.geometry
+        } else if (feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon') {
+          // Polygon geometry: calculate centroid for lat/lng
+          const coords = feature.geometry.coordinates
           let allLngs = []
           let allLats = []
           
-          if (geometry.type === 'Polygon') {
+          if (feature.geometry.type === 'Polygon') {
             for (const ring of coords) {
               for (const coord of ring) {
                 allLngs.push(coord[0])
                 allLats.push(coord[1])
               }
             }
-          } else if (geometry.type === 'MultiPolygon') {
+          } else if (feature.geometry.type === 'MultiPolygon') {
             for (const polygon of coords) {
               for (const ring of polygon) {
                 for (const coord of ring) {
@@ -527,23 +373,193 @@ export async function POST(request) {
           }
           
           if (allLngs.length > 0 && allLats.length > 0) {
-            park.longitude = allLngs.reduce((a, b) => a + b, 0) / allLngs.length
-            park.latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
-            console.log(`Calculated centroid for ${park.name}: (${park.latitude}, ${park.longitude})`)
+            longitude = allLngs.reduce((a, b) => a + b, 0) / allLngs.length
+            latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
+          }
+          
+          // Simplify geometry to reduce file size (~500 feet accuracy)
+          // This significantly reduces point count while maintaining visual accuracy
+          const simplifiedGeometry = simplifyBoundary(feature.geometry, 152) // 152 meters = ~500 feet
+          geometry = simplifiedGeometry
+        }
+        
+          // Extract properties and map to our schema
+        const props = feature.properties
+        const mappedProps = mapPropertiesToParkSchema(props)
+        
+        // Use defaultState if state is not in the file
+        if (!mappedProps.state && defaultState) {
+          mappedProps.state = defaultState
+        }
+        
+        // Normalize state to state code for consistency (e.g., "Georgia" -> "GA")
+        if (mappedProps.state) {
+          mappedProps.state = normalizeStateToCode(mappedProps.state)
+        }
+        
+        // CRITICAL: Derive agency from sourceType if not found in file
+        // Agency is REQUIRED (NOT NULL) in database schema
+        if (!mappedProps.agency || mappedProps.agency === '') {
+          const stateCode = mappedProps.state || normalizeStateToCode(defaultState) || ''
+          if (sourceType && stateCode) {
+            // Derive agency name from sourceType + state code
+            const agencyMap = {
+              'State Agency': `${stateCode} State Parks`,
+              'Public State': `${stateCode} State Parks`,
+              'County Agency': `${stateCode} County Parks`,
+              'City Agency': `${stateCode} City Parks`,
+              'Public Federal': 'Federal Agency',
+              'Federal Agency': 'Federal Agency'
+            }
+            mappedProps.agency = agencyMap[sourceType] || sourceType
+            console.log(`Derived agency "${mappedProps.agency}" from sourceType "${sourceType}" and state "${stateCode}"`)
+          } else {
+            // Fallback to sourceType if no state
+            mappedProps.agency = sourceType || 'Unknown Agency'
           }
         }
+        
+        // Filter ParkServe parks: only include if ParkAccess === 3 (Open Access)
+        if (mappedProps._parkAccess !== undefined && mappedProps._parkAccess !== null) {
+          const parkAccess = String(mappedProps._parkAccess).trim()
+          if (parkAccess !== '3' && parkAccess !== '3.0') {
+            console.log(`Skipping park ${mappedProps.name}: ParkAccess is ${parkAccess}, not 3 (Open Access)`)
+            continue // Skip this park
+          }
+        }
+        // Remove internal filter field
+        delete mappedProps._parkAccess
+        
+        // Set data_source field
+        if (!mappedProps.data_source) {
+          mappedProps.data_source = sourceType || sourceName
+        }
+        
+        // Ensure activities and amenities are JSON arrays (not strings)
+        if (mappedProps.activities && !Array.isArray(mappedProps.activities)) {
+          mappedProps.activities = [mappedProps.activities]
+        }
+        if (mappedProps.amenities && !Array.isArray(mappedProps.amenities)) {
+          mappedProps.amenities = [mappedProps.amenities]
+        }
+        
+        // Log unmapped properties for debugging (only for first few features to avoid spam)
+        if (globalIndex < 5) {
+          logUnmappedProperties(props)
+        }
+        
+        // Validate and fix geometry
+        let geometryValue = null
+        if (geometry) {
+          try {
+            // Validate geometry structure
+            const validation = validateGeometry(geometry)
+            if (!validation.valid) {
+              console.warn(`Park ${mappedProps.name} has invalid geometry: ${validation.error}`)
+              // Try to fix common issues
+              const fixed = fixGeometry(geometry)
+              const fixedValidation = validateGeometry(fixed)
+              if (fixedValidation.valid) {
+                geometry = fixed
+                console.log(`Fixed geometry for ${mappedProps.name}`)
+              } else {
+                console.warn(`Could not fix geometry for ${mappedProps.name}, skipping geometry`)
+                geometry = null
+              }
+            }
+            
+            // Convert to WKT format for PostGIS geography column
+            if (geometry) {
+              const wktValidation = validateWKT(geometry)
+              if (wktValidation.valid) {
+                geometryValue = geojsonToWKT(geometry, 4326) // SRID 4326 (WGS84)
+                if (!geometryValue) {
+                  console.warn(`Failed to convert geometry to WKT for ${mappedProps.name}`)
+                }
+              } else {
+                console.warn(`Geometry validation failed for ${mappedProps.name}: ${wktValidation.error}`)
+              }
+            }
+          } catch (err) {
+            console.warn(`Failed to process geometry for ${mappedProps.name}:`, err)
+            geometryValue = null
+          }
+        }
+        
+        // Get area/acres for grouping (keep largest parcel)
+        const acres = mappedProps.acres || 
+          (props.GIS_Acres ? parseFloat(props.GIS_Acres) : null) ||
+          (props.acres ? parseFloat(props.acres) : null) ||
+          (props.AREA ? parseFloat(props.AREA) : null) ||
+          0
+        
+        const park = {
+          ...mappedProps,
+          latitude,
+          longitude,
+          acres,
+          // Store geometry as WKT string for PostGIS geography column
+          ...(geometryValue && { geometry: geometryValue }),
+        }
+        
+        // Validate required fields
+        if (!park.name || park.name === 'Unnamed Park') {
+          console.warn('Skipping feature with no name:', feature)
+          continue
+        }
+        
+        // CRITICAL: Parks must have coordinates to display on map
+        // If coordinates are missing but we have geometry, try to calculate centroid
+        if ((!park.latitude || !park.longitude) && geometry) {
+          console.log(`Park ${park.name} missing coordinates but has geometry - calculating centroid...`)
+          // Recalculate from geometry if we have it
+          if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+            const coords = geometry.coordinates
+            let allLngs = []
+            let allLats = []
+            
+            if (geometry.type === 'Polygon') {
+              for (const ring of coords) {
+                for (const coord of ring) {
+                  allLngs.push(coord[0])
+                  allLats.push(coord[1])
+                }
+              }
+            } else if (geometry.type === 'MultiPolygon') {
+              for (const polygon of coords) {
+                for (const ring of polygon) {
+                  for (const coord of ring) {
+                    allLngs.push(coord[0])
+                    allLats.push(coord[1])
+                  }
+                }
+              }
+            }
+            
+            if (allLngs.length > 0 && allLats.length > 0) {
+              park.longitude = allLngs.reduce((a, b) => a + b, 0) / allLngs.length
+              park.latitude = allLats.reduce((a, b) => a + b, 0) / allLats.length
+              console.log(`Calculated centroid for ${park.name}: (${park.latitude}, ${park.longitude})`)
+            }
+          }
+        }
+        
+        // Final validation - skip if still no valid coordinates
+        if (!park.latitude || !park.longitude || 
+            isNaN(park.latitude) || isNaN(park.longitude) ||
+            park.latitude < -90 || park.latitude > 90 ||
+            park.longitude < -180 || park.longitude > 180) {
+          console.warn(`Skipping ${park.name}: Invalid or missing coordinates (${park.latitude}, ${park.longitude})`)
+          continue
+        }
+        
+        rawParks.push(park)
       }
       
-      // Final validation - skip if still no valid coordinates
-      if (!park.latitude || !park.longitude || 
-          isNaN(park.latitude) || isNaN(park.longitude) ||
-          park.latitude < -90 || park.latitude > 90 ||
-          park.longitude < -180 || park.longitude > 180) {
-        console.warn(`Skipping ${park.name}: Invalid or missing coordinates (${park.latitude}, ${park.longitude})`)
-        continue
+      // Log batch completion
+      if (batchIndex < totalBatches - 1) {
+        console.log(`Batch ${batchIndex + 1} complete. Processed ${rawParks.length} parks so far...`)
       }
-      
-      rawParks.push(park)
     }
     
     // Step 2: Group and deduplicate parks (keep largest parcel per park)

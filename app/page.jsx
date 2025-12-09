@@ -13,10 +13,10 @@ import FilterButton from '../src/components/Parks/FilterButton'
 import FilterDrawer from '../src/components/Parks/FilterDrawer'
 import ParkDetail from '../src/components/Parks/ParkDetail'
 
-// Dynamically import map components to avoid SSR issues with Leaflet
+// Dynamically import map components to avoid SSR issues with Mapbox GL
 const MapView = dynamic(() => import('../src/components/Map/MapView'), { ssr: false })
-const ParkMarker = dynamic(() => import('../src/components/Map/ParkMarker'), { ssr: false })
 const ParkBoundary = dynamic(() => import('../src/components/Map/ParkBoundary'), { ssr: false })
+const MarkerClusterGroup = dynamic(() => import('../src/components/Map/MarkerClusterGroup'), { ssr: false })
 
 export default function HomePage() {
   const {
@@ -126,13 +126,10 @@ export default function HomePage() {
             center={mapCenter} 
             zoom={mapZoom}
           >
-            {parks.map(park => (
-              <ParkMarker 
-                key={park.id}
-                park={park}
-                onDetailsClick={handleParkClick}
-              />
-            ))}
+            <MarkerClusterGroup
+              parks={parks}
+              onMarkerClick={handleParkClick}
+            />
             
             {parkBoundary && selectedPark && (
               <ParkBoundary 

@@ -348,15 +348,47 @@ export async function POST(request) {
                   
                   const geocodePromises = batch.map(async ({ park, index }) => {
                     try {
-                      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&types=region&limit=1`
+                      // Use reverse geocoding with all types to get state from context
+                      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&limit=1`
                       const response = await fetch(url)
-                      if (response.ok) {
-                        const geoData = await response.json()
-                        if (geoData.features && geoData.features.length > 0) {
-                          const context = geoData.features[0].context || []
-                          const region = context.find(c => c.id?.startsWith('region'))
-                          if (region && region.short_code) {
-                            const stateCode = region.short_code.replace('US-', '').toUpperCase()
+                      
+                      if (!response.ok) {
+                        // Log rate limit or auth errors
+                        if (response.status === 429) {
+                          console.warn(`Mapbox rate limit hit for batch starting at ${i}`)
+                        } else if (response.status === 401 || response.status === 403) {
+                          console.error(`Mapbox authentication error: ${response.status}`)
+                        }
+                        return false
+                      }
+                      
+                      const geoData = await response.json()
+                      
+                      if (geoData.features && geoData.features.length > 0) {
+                        const feature = geoData.features[0]
+                        const context = feature.context || []
+                        
+                        // Look for region (state) in context
+                        // Context items have id like "region.12345" and short_code like "US-CA"
+                        const region = context.find(c => {
+                          const id = c.id || ''
+                          return id.startsWith('region.') || id.startsWith('region')
+                        })
+                        
+                        if (region && region.short_code) {
+                          // Extract state code from "US-CA" format
+                          const stateCode = region.short_code.replace('US-', '').toUpperCase()
+                          if (stateCode.length === 2) {
+                            mappedParks[index].state = stateCode
+                            return true
+                          }
+                        }
+                        
+                        // Fallback: check if the feature itself is a region
+                        if (feature.place_type && feature.place_type.includes('region')) {
+                          const shortCode = feature.properties?.short_code
+                          if (shortCode) {
+                            const stateCode = shortCode.replace('US-', '').toUpperCase()
                             if (stateCode.length === 2) {
                               mappedParks[index].state = stateCode
                               return true
@@ -364,8 +396,11 @@ export async function POST(request) {
                           }
                         }
                       }
-                    } catch {
-                      // Silently continue
+                    } catch (error) {
+                      // Log errors for debugging but don't fail the whole batch
+                      if (error.message && !error.message.includes('fetch')) {
+                        console.warn(`Reverse geocode error for park ${park.name}: ${error.message}`)
+                      }
                     }
                     return false
                   })
