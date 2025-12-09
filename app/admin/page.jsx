@@ -54,6 +54,7 @@ function AdminPanel() {
   const [geocodeLimit, setGeocodeLimit] = useState(50)
   const [geocodeState, setGeocodeState] = useState('')
   const [geocodeUseGeometry, setGeocodeUseGeometry] = useState(true)
+  const [geocodeType, setGeocodeType] = useState('coordinates') // 'coordinates' or 'state'
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityAnalysis, setQualityAnalysis] = useState(null);
   const [qualityError, setQualityError] = useState(null);
@@ -609,6 +610,7 @@ function AdminPanel() {
           limit: geocodeLimit,
           state: geocodeState || null,
           useGeometry: geocodeUseGeometry,
+          geocodeType: geocodeType,
         }),
       })
 
@@ -1578,23 +1580,46 @@ function AdminPanel() {
         {/* ==================== GEOCODE MISSING COORDINATES TAB ==================== */}
         {activeTab === 'geocode' && (
           <div className="section">
-            <h2>Geocode Missing Coordinates</h2>
+            <h2>Geocode Missing Data</h2>
             <p className="section-description">
-              Find parks missing latitude/longitude coordinates and geocode them using Mapbox API or calculate from geometry.
+              Find parks missing coordinates or state and geocode them using Mapbox API or calculate from geometry.
             </p>
 
             <div className="form-group">
-              <label>Process Options:</label>
+              <label>Geocode Type:</label>
               <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '20px' }}>
+                  <input
+                    type="radio"
+                    value="coordinates"
+                    checked={geocodeType === 'coordinates'}
+                    onChange={(e) => setGeocodeType(e.target.value)}
+                  />
+                  Missing Coordinates
+                </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
-                    type="checkbox"
-                    checked={geocodeUseGeometry}
-                    onChange={(e) => setGeocodeUseGeometry(e.target.checked)}
+                    type="radio"
+                    value="state"
+                    checked={geocodeType === 'state'}
+                    onChange={(e) => setGeocodeType(e.target.value)}
                   />
-                  Calculate centroids from geometry first (faster, free)
+                  Missing State (has coordinates)
                 </label>
               </div>
+              <label>Process Options:</label>
+              {geocodeType === 'coordinates' && (
+                <div style={{ marginBottom: '15px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={geocodeUseGeometry}
+                      onChange={(e) => setGeocodeUseGeometry(e.target.checked)}
+                    />
+                    Calculate centroids from geometry first (faster, free)
+                  </label>
+                </div>
+              )}
               <div style={{ marginBottom: '15px' }}>
                 <label>Limit (parks per batch):</label>
                 <input
