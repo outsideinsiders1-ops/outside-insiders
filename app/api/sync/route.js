@@ -327,8 +327,12 @@ export async function POST(request) {
             const missingName = mappedParks.filter(p => !p.name).length
             console.log(`Facilities with state: ${mappedParks.length - missingState}/${mappedParks.length}, missing name: ${missingName}`)
             
-            // STEP 4: For facilities still missing state, try reverse geocoding in PARALLEL batches
-            if (missingState > 0) {
+            // STEP 4: For Recreation.gov, skip geocoding to avoid timeout
+            // Parks will be saved without state and can be geocoded later via admin panel
+            if (missingState > 0 && sourceType === 'Recreation.gov') {
+              console.log(`📍 ${missingState} facilities missing state. Skipping geocoding for Recreation.gov sync to avoid timeout.`)
+              console.log(`ℹ️  Parks will be saved without state and can be geocoded later via the admin panel.`)
+            } else if (missingState > 0) {
               console.log(`📍 ${missingState} facilities still missing state. Attempting reverse geocoding for facilities with coordinates...`)
               
               const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN
@@ -463,6 +467,10 @@ export async function POST(request) {
               
               const stillMissingState = mappedParks.filter(p => !p.state).length
               console.log(`📍 Facilities still missing state: ${stillMissingState}`)
+            } else {
+              // Recreation.gov sync - skipped geocoding
+              const stillMissingState = mappedParks.filter(p => !p.state).length
+              console.log(`📍 Facilities still missing state: ${stillMissingState} (will be saved without state)`)
             }
             
             if (mappedParks.length > 0) {
@@ -620,4 +628,5 @@ export async function OPTIONS() {
     },
   })
 }
+
 
