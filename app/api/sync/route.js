@@ -339,25 +339,43 @@ export async function POST(request) {
               if (MAPBOX_TOKEN && facilitiesNeedingGeocode.length > 0) {
                 console.log(`🗺️ Using parallel reverse geocoding for ${facilitiesNeedingGeocode.length} facilities with coordinates...`)
                 
-                // Process in parallel batches to speed up (Mapbox allows concurrent requests)
-                const geocodeBatchSize = 50 // Process 50 at a time in parallel
+                // Process in smaller batches with rate limiting and exponential backoff
+                const geocodeBatchSize = 10 // Reduced from 50 to avoid rate limits
                 let geocoded = 0
+                let rateLimitHits = 0
+                const maxRateLimitHits = 5 // Stop if we hit rate limit 5 times in a row
                 
                 for (let i = 0; i < facilitiesNeedingGeocode.length; i += geocodeBatchSize) {
-                  const batch = facilitiesNeedingGeocode.slice(i, i + geocodeBatchSize)
+                  // Check if we've hit too many rate limits
+                  if (rateLimitHits >= maxRateLimitHits) {
+                    console.warn(`⚠️ Stopping geocoding after ${rateLimitHits} consecutive rate limit hits. ${facilitiesNeedingGeocode.length - i} facilities remaining.`)
+                    break
+                  }
                   
-                  const geocodePromises = batch.map(async ({ park, index }) => {
+                  const batch = facilitiesNeedingGeocode.slice(i, i + geocodeBatchSize)
+                  let batchRateLimited = false
+                  
+                  const geocodePromises = batch.map(async ({ park, index }, batchIndex) => {
+                    // Stagger requests within batch to avoid rate limits
+                    await new Promise(resolve => setTimeout(resolve, batchIndex * 50))
+                    
                     try {
                       // Use reverse geocoding with all types to get state from context
                       const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&limit=1`
                       const response = await fetch(url)
                       
                       if (!response.ok) {
-                        // Log rate limit or auth errors
+                        // Handle rate limiting with exponential backoff
                         if (response.status === 429) {
-                          console.warn(`Mapbox rate limit hit for batch starting at ${i}`)
+                          batchRateLimited = true
+                          const retryAfter = response.headers.get('Retry-After') || '60'
+                          console.warn(`Mapbox rate limit hit. Retry after ${retryAfter} seconds.`)
+                          // Wait before continuing
+                          await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000))
+                          return false
                         } else if (response.status === 401 || response.status === 403) {
                           console.error(`Mapbox authentication error: ${response.status}`)
+                          return false
                         }
                         return false
                       }
@@ -406,16 +424,27 @@ export async function POST(request) {
                   })
                   
                   const results = await Promise.all(geocodePromises)
-                  geocoded += results.filter(r => r).length
+                  const batchGeocoded = results.filter(r => r).length
+                  geocoded += batchGeocoded
+                  
+                  // Track rate limit hits
+                  if (batchRateLimited) {
+                    rateLimitHits++
+                  } else {
+                    rateLimitHits = 0 // Reset counter if no rate limit
+                  }
                   
                   // Log progress every 500
                   if ((i + geocodeBatchSize) % 500 === 0 || i + geocodeBatchSize >= facilitiesNeedingGeocode.length) {
                     console.log(`🗺️ Reverse geocoded ${geocoded}/${facilitiesNeedingGeocode.length} facilities`)
                   }
                   
-                  // Small delay between batches to avoid overwhelming Mapbox
-                  if (i + geocodeBatchSize < facilitiesNeedingGeocode.length) {
-                    await new Promise(resolve => setTimeout(resolve, 100))
+                  // Longer delay between batches to avoid rate limits (increased from 100ms to 500ms)
+                  if (i + geocodeBatchSize < facilitiesNeedingGeocode.length && !batchRateLimited) {
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                  } else if (batchRateLimited) {
+                    // Wait longer after rate limit
+                    await new Promise(resolve => setTimeout(resolve, 2000))
                   }
                 }
                 
@@ -437,6 +466,7 @@ export async function POST(request) {
 
             // Process each park
             let processedCount = 0
+            let parksWithoutState = 0
             for (const park of mappedParks) {
               processedCount++
               try {
@@ -446,11 +476,29 @@ export async function POST(request) {
                 }
                 
                 // Validate required fields
-                if (!park.name || !park.state) {
+                // Note: State is preferred but not strictly required if we have coordinates
+                // We'll try to save parks with coordinates even without state
+                if (!park.name) {
+                  parksSkipped++
+                  errors.push({
+                    park: 'Unknown',
+                    error: `Missing required field - name`
+                  })
+                  continue
+                }
+                
+                // Track parks without state but with coordinates (these can still be saved)
+                if (!park.state && park.latitude && park.longitude) {
+                  parksWithoutState++
+                  // We'll still try to save these - state can be added later via geocoding
+                }
+                
+                // Only skip if missing both state AND coordinates
+                if (!park.state && (!park.latitude || !park.longitude)) {
                   parksSkipped++
                   errors.push({
                     park: park.name || 'Unknown',
-                    error: `Missing required fields - name: ${!!park.name}, state: ${!!park.state}`
+                    error: `Missing required fields - state and coordinates both missing`
                   })
                   continue
                 }
@@ -480,6 +528,9 @@ export async function POST(request) {
             }
             console.log(`=== RECREATION.GOV API SYNC COMPLETE ===`)
             console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
+            if (parksWithoutState > 0) {
+              console.log(`ℹ️ Note: ${parksWithoutState} parks were saved without state (have coordinates, can be geocoded later via admin panel)`)
+            }
             
             // Log if we didn't process all parks
             if (processedCount < mappedParks.length) {

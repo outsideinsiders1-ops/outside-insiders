@@ -13,17 +13,21 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
   useEffect(() => {
     if (!map || !mapLoaded || !parks || parks.length === 0) return
 
-    // Convert parks to GeoJSON
+    // Convert parks to GeoJSON - ensure all park data is in properties
     const geojson = {
       type: 'FeatureCollection',
       features: parks.map(park => ({
         type: 'Feature',
         properties: {
+          // Core fields
           id: park.id,
           name: park.name,
           agency: park.agency,
           state: park.state,
+          latitude: park.latitude,
+          longitude: park.longitude,
           distance: park.distance,
+          // Include all other park properties
           ...park
         },
         geometry: {
@@ -116,6 +120,16 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
 
     // Spiderfy functionality - spread out markers when cluster is clicked
     const spiderfyCluster = (clusterId, center, pointCount) => {
+      // Clean up any existing spiderfy first
+      try {
+        if (map.getLayer('spiderfy-lines')) map.removeLayer('spiderfy-lines')
+        if (map.getLayer('spiderfy-layer')) map.removeLayer('spiderfy-layer')
+        if (map.getSource('spiderfy-source')) map.removeSource('spiderfy-source')
+        if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+      } catch (err) {
+        // Ignore errors if layers don't exist
+      }
+      
       // Get all points in the cluster
       map.getSource(sourceId).getClusterLeaves(clusterId, pointCount, 0, (err, leaves) => {
         if (err || !leaves || leaves.length === 0) {
@@ -131,8 +145,8 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           return
         }
 
-        // If only a few markers, just zoom in
-        if (leaves.length <= 5) {
+        // If only a few markers, just zoom in (increased threshold to 10 for better UX)
+        if (leaves.length <= 10) {
           map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
             if (!err) {
               map.easeTo({
@@ -233,15 +247,32 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           })
           
           if (features.length > 0 && onMarkerClick) {
-            const park = features[0].properties
+            const props = features[0].properties
+            // Reconstruct full park object
+            const park = {
+              id: props.id,
+              name: props.name,
+              agency: props.agency,
+              state: props.state,
+              latitude: props.latitude || features[0].geometry.coordinates[1],
+              longitude: props.longitude || features[0].geometry.coordinates[0],
+              distance: props.distance,
+              ...props
+            }
             onMarkerClick(park)
             
             // Clean up spiderfy after click
-            if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
-            if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
-            if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
-            if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
-            map.off('click', spiderfyLayerId, handleSpiderfyClick)
+            try {
+              if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
+              if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
+              if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
+              if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+              map.off('click', spiderfyLayerId, handleSpiderfyClick)
+              map.off('mouseenter', spiderfyLayerId)
+              map.off('mouseleave', spiderfyLayerId)
+            } catch (err) {
+              console.warn('Error cleaning up spiderfy on click:', err)
+            }
           }
         }
 
@@ -254,20 +285,28 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
         })
 
         // Clean up spiderfy when map moves or zooms
+        let cleanupTimeout = null
         const cleanupSpiderfy = () => {
-          if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
-          if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
-          if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
-          if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
-          map.off('click', spiderfyLayerId, handleSpiderfyClick)
-          map.off('mouseenter', spiderfyLayerId)
-          map.off('mouseleave', spiderfyLayerId)
-          map.off('move', cleanupSpiderfy)
-          map.off('zoom', cleanupSpiderfy)
+          // Debounce cleanup to avoid flickering
+          if (cleanupTimeout) clearTimeout(cleanupTimeout)
+          cleanupTimeout = setTimeout(() => {
+            try {
+              if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
+              if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
+              if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
+              if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+              map.off('click', spiderfyLayerId, handleSpiderfyClick)
+              map.off('mouseenter', spiderfyLayerId)
+              map.off('mouseleave', spiderfyLayerId)
+            } catch (err) {
+              console.warn('Error cleaning up spiderfy:', err)
+            }
+          }, 100)
         }
 
         map.once('move', cleanupSpiderfy)
         map.once('zoom', cleanupSpiderfy)
+        map.once('click', cleanupSpiderfy) // Also cleanup on any click
       })
     }
 
@@ -294,7 +333,20 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       })
       
       if (features.length > 0 && onMarkerClick) {
-        const park = features[0].properties
+        const props = features[0].properties
+        // Reconstruct full park object from properties
+        // Properties include all park data via spread operator
+        const park = {
+          id: props.id,
+          name: props.name,
+          agency: props.agency,
+          state: props.state,
+          latitude: props.latitude || features[0].geometry.coordinates[1],
+          longitude: props.longitude || features[0].geometry.coordinates[0],
+          distance: props.distance,
+          // Include any other park properties
+          ...props
+        }
         onMarkerClick(park)
       }
     }

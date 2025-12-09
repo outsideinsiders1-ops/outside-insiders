@@ -49,13 +49,17 @@ const MapView = ({ center, zoom, children }) => {
       return
     }
 
-    // Initialize map
+    // Initialize map with performance optimizations
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/outdoors-v12',
       center: [validCenter[1], validCenter[0]], // Mapbox uses [lng, lat]
       zoom: validZoom,
       accessToken: MAPBOX_TOKEN,
+      // Performance optimizations
+      renderWorldCopies: false, // Don't render multiple world copies
+      maxPitch: 60, // Limit pitch for better performance
+      antialias: false, // Disable antialiasing for better performance on low-end devices
     })
 
     // Add navigation controls
