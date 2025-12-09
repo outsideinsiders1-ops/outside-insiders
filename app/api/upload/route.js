@@ -107,26 +107,29 @@ export async function POST(request) {
           
           console.log(`Found ${totalChunks} chunks matching pattern for ${baseFileName}`)
           
-          // Sort chunks by number to ensure correct order
-          chunkFiles.sort((a, b) => {
-            const aNum = parseInt(a.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
-            const bNum = parseInt(b.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
-            return aNum - bNum
-          })
-          
           if (totalChunks === 0) {
-            // Fallback: try to download as regular file
-            console.log('No chunks found, trying to download as regular file...')
-            const response = await fetch(fileUrl)
-            if (!response.ok) {
-              throw new Error(`Failed to download file from storage: ${response.statusText}`)
+            // No chunks found - this shouldn't happen if isChunked is true, but try regular file as fallback
+            console.log('⚠️ No chunks found despite isChunked=true, trying to download as regular file...')
+            try {
+              const response = await fetch(fileUrl)
+              if (!response.ok) {
+                throw new Error(`Failed to download file from storage: ${response.statusText}`)
+              }
+              const blob = await response.blob()
+              const urlParts = fileUrl.split('/')
+              const urlFileName = urlParts[urlParts.length - 1].split('?')[0]
+              fileName = urlFileName || sourceName
+              fileToProcess = new File([blob], fileName, { type: blob.type })
+            } catch (fetchError) {
+              throw new Error(`Failed to download file: ${fetchError.message}. Chunks may not have been uploaded correctly.`)
             }
-            const blob = await response.blob()
-            const urlParts = fileUrl.split('/')
-            const urlFileName = urlParts[urlParts.length - 1].split('?')[0]
-            fileName = urlFileName || sourceName
-            fileToProcess = new File([blob], fileName, { type: blob.type })
           } else {
+            // Sort chunks by number to ensure correct order
+            chunkFiles.sort((a, b) => {
+              const aNum = parseInt(a.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
+              const bNum = parseInt(b.name.match(/\.chunk\.(\d+)$/)?.[1] || '0')
+              return aNum - bNum
+            })
             console.log(`Reassembling ${totalChunks} chunks from base path: ${basePath}`)
             
             // Estimate total file size from first chunk

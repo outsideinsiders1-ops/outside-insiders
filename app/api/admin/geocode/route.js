@@ -32,18 +32,32 @@ export async function POST(request) {
     const { 
       limit = 50, // Process 50 parks at a time by default
       state = null, // Optional: filter by state
-      useGeometry = true // Try to calculate from geometry first
+      useGeometry = true, // Try to calculate from geometry first
+      geocodeType = 'coordinates' // 'coordinates' or 'state'
     } = body
 
     console.log('=== GEOCODING REQUEST ===')
-    console.log(`Limit: ${limit}, State: ${state || 'All'}, Use Geometry: ${useGeometry}`)
+    console.log(`Limit: ${limit}, State: ${state || 'All'}, Use Geometry: ${useGeometry}, Type: ${geocodeType}`)
 
-    // Step 1: Find parks missing coordinates
-    let query = supabaseServer
-      .from('parks')
-      .select('id, name, state, address, latitude, longitude, geometry')
-      .or('latitude.is.null,longitude.is.null')
-      .limit(limit)
+    // Step 1: Find parks missing coordinates OR missing state
+    let query
+    if (geocodeType === 'state') {
+      // Find parks missing state but with coordinates
+      query = supabaseServer
+        .from('parks')
+        .select('id, name, state, address, latitude, longitude, geometry')
+        .is('state', null)
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .limit(limit)
+    } else {
+      // Find parks missing coordinates
+      query = supabaseServer
+        .from('parks')
+        .select('id, name, state, address, latitude, longitude, geometry')
+        .or('latitude.is.null,longitude.is.null')
+        .limit(limit)
+    }
 
     if (state) {
       query = query.eq('state', state)
@@ -63,14 +77,16 @@ export async function POST(request) {
     if (!parks || parks.length === 0) {
       return Response.json({
         success: true,
-        message: 'No parks found missing coordinates',
+        message: geocodeType === 'state' 
+          ? 'No parks found missing state' 
+          : 'No parks found missing coordinates',
         parksProcessed: 0,
         parksFixed: 0,
         parksSkipped: 0
       }, { status: 200, headers })
     }
 
-    console.log(`Found ${parks.length} parks missing coordinates`)
+    console.log(`Found ${parks.length} parks ${geocodeType === 'state' ? 'missing state' : 'missing coordinates'}`)
 
     let successCount = 0
     let failedCount = 0
@@ -80,8 +96,78 @@ export async function POST(request) {
     // Step 2: Process each park
     for (let i = 0; i < parks.length; i++) {
       const park = parks[i]
-      console.log(`[${i + 1}/${parks.length}] Processing: ${park.name} (${park.state})`)
+      console.log(`[${i + 1}/${parks.length}] Processing: ${park.name} (${park.state || 'no state'})`)
 
+      if (geocodeType === 'state') {
+        // Reverse geocode to get state from coordinates
+        if (!park.latitude || !park.longitude) {
+          console.log(`  ⚠️  Missing coordinates, cannot reverse geocode`)
+          skippedCount++
+          continue
+        }
+
+        try {
+          const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${park.longitude},${park.latitude}.json?access_token=${MAPBOX_TOKEN}&limit=1`
+          const response = await fetch(url)
+          
+          if (!response.ok) {
+            throw new Error(`Geocoding API error: ${response.status}`)
+          }
+
+          const data = await response.json()
+
+          if (data.features && data.features.length > 0) {
+            const feature = data.features[0]
+            const context = feature.context || []
+            
+            // Look for region (state) in context
+            const region = context.find(c => {
+              const id = c.id || ''
+              return id.startsWith('region.') || id.startsWith('region')
+            })
+            
+            if (region && region.short_code) {
+              // Extract state code from "US-CA" format
+              const stateCode = region.short_code.replace('US-', '').toUpperCase()
+              if (stateCode.length === 2) {
+                // Update park with state
+                const { error: updateError } = await supabaseServer
+                  .from('parks')
+                  .update({ state: stateCode })
+                  .eq('id', park.id)
+
+                if (updateError) {
+                  console.error(`  ❌ Failed to update: ${updateError.message}`)
+                  failedCount++
+                  errors.push({ park: park.name, error: updateError.message })
+                } else {
+                  console.log(`  ✅ Geocoded state: ${stateCode}`)
+                  successCount++
+                }
+              } else {
+                console.log(`  ⚠️  Could not extract state code`)
+                skippedCount++
+              }
+            } else {
+              console.log(`  ⚠️  Could not find state in geocoding response`)
+              skippedCount++
+            }
+          } else {
+            console.log(`  ⚠️  No geocoding results`)
+            skippedCount++
+          }
+        } catch (error) {
+          console.warn(`  ⚠️  Reverse geocoding error: ${error.message}`)
+          failedCount++
+          errors.push({ park: park.name, error: error.message })
+        }
+
+        // Rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100))
+        continue
+      }
+
+      // Original logic for geocoding coordinates
       let coords = null
 
       // First, try to calculate from geometry if available
