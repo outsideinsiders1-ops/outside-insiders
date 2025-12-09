@@ -233,7 +233,128 @@ export async function POST(request) {
         // Handle Recreation.gov API
         else if (sourceType === 'Recreation.gov' || sourceType === 'Recreation.gov API') {
           try {
+            // Check if this is augmentation mode (enrich existing parks with detailed facility data)
+            if (augmentMode === true || augmentMode === 'true') {
+              console.log('=== RECREATION.GOV API AUGMENTATION MODE ===')
+              console.log('Enriching existing Recreation.gov parks with detailed facility data...')
+              
+              // Get all existing Recreation.gov parks
+              const { data: existingParks, error: fetchError } = await supabaseServer
+                .from('parks')
+                .select('id, name, source_id, state, latitude, longitude, description, phone, email, website')
+                .eq('data_source', 'Recreation.gov API')
+                .not('source_id', 'is', null)
+                .limit(1000) // Process in batches to avoid timeout
+              
+              if (fetchError) {
+                throw new Error(`Failed to fetch existing parks: ${fetchError.message}`)
+              }
+              
+              if (!existingParks || existingParks.length === 0) {
+                return Response.json({
+                  success: false,
+                  error: 'No existing Recreation.gov parks found',
+                  message: 'Please run a regular sync first to add parks, then run augmentation.'
+                }, { status: 400, headers })
+              }
+              
+              console.log(`Found ${existingParks.length} existing Recreation.gov parks to augment`)
+              
+              let augmented = 0
+              let failed = 0
+              const batchSize = 10 // Small batches to avoid rate limits
+              
+              for (let i = 0; i < existingParks.length; i += batchSize) {
+                const batch = existingParks.slice(i, i + batchSize)
+                
+                const augmentPromises = batch.map(async (park) => {
+                  try {
+                    // Fetch detailed facility data
+                    const detailedFacility = await fetchRecreationFacilityById(effectiveApiKey, park.source_id)
+                    
+                    if (!detailedFacility || !detailedFacility.RECDATA || detailedFacility.RECDATA.length === 0) {
+                      return { success: false, park: park.name, reason: 'No facility data returned' }
+                    }
+                    
+                    const facility = detailedFacility.RECDATA[0]
+                    
+                    // Map to park schema with all detailed fields
+                    const addresses = facility.FACILITYADDRESS || []
+                    const enrichedPark = mapRecreationGovToParkSchema(facility, addresses)
+                    
+                    // Update the existing park with enriched data
+                    // Only update fields that are missing or can be improved
+                    const updateData = {}
+                    
+                    // Update description if it's more detailed
+                    if (enrichedPark.description && (!park.description || enrichedPark.description.length > (park.description?.length || 0))) {
+                      updateData.description = enrichedPark.description
+                    }
+                    
+                    // Update phone/email if missing
+                    if (enrichedPark.phone && !park.phone) updateData.phone = enrichedPark.phone
+                    if (enrichedPark.email && !park.email) updateData.email = enrichedPark.email
+                    
+                    // Update activities if available
+                    if (enrichedPark.activities) updateData.activities = enrichedPark.activities
+                    
+                    // Update other fields
+                    if (enrichedPark.directions) updateData.directions = enrichedPark.directions
+                    if (enrichedPark.accessibility) updateData.accessibility = enrichedPark.accessibility
+                    if (enrichedPark.website && !park.website) updateData.website = enrichedPark.website
+                    
+                    // Update state if we got it from addresses
+                    if (enrichedPark.state && !park.state) updateData.state = enrichedPark.state
+                    
+                    if (Object.keys(updateData).length > 0) {
+                      const { error: updateError } = await supabaseServer
+                        .from('parks')
+                        .update(updateData)
+                        .eq('id', park.id)
+                      
+                      if (updateError) {
+                        return { success: false, park: park.name, reason: updateError.message }
+                      }
+                      
+                      return { success: true, park: park.name, fieldsUpdated: Object.keys(updateData) }
+                    }
+                    
+                    return { success: true, park: park.name, reason: 'No new data to update' }
+                  } catch (error) {
+                    return { success: false, park: park.name, reason: error.message }
+                  }
+                })
+                
+                const results = await Promise.all(augmentPromises)
+                
+                results.forEach(result => {
+                  if (result.success) {
+                    augmented++
+                  } else {
+                    failed++
+                  }
+                })
+                
+                // Log progress
+                if ((i + batchSize) % 100 === 0 || i + batchSize >= existingParks.length) {
+                  console.log(`📊 Augmentation progress: ${Math.min(i + batchSize, existingParks.length)}/${existingParks.length} (${augmented} augmented, ${failed} failed)`)
+                }
+                
+                // Rate limiting
+                await new Promise(resolve => setTimeout(resolve, 200))
+              }
+              
+              return Response.json({
+                success: true,
+                message: `Augmented ${augmented} Recreation.gov parks with detailed facility data`,
+                parksAugmented: augmented,
+                parksFailed: failed,
+                totalProcessed: existingParks.length
+              }, { headers })
+            }
+            
             console.log('=== RECREATION.GOV API SYNC START ===')
+            console.log('Phase 1: Adding parks with basic info from facilities list + addresses')
             
             const facilities = await fetchRecreationFacilities(effectiveApiKey, {
               onProgress: (progress) => {
