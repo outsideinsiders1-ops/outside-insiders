@@ -2,8 +2,7 @@
 // src/components/Map/ParkBoundary.jsx
 // Mapbox GL JS boundary implementation
 
-import React, { useEffect, useRef } from 'react'
-import mapboxgl from 'mapbox-gl'
+import React, { useEffect } from 'react'
 
 const ParkBoundary = ({ boundary, parkName, map, mapLoaded, visible = true }) => {
   const sourceId = 'park-boundary-source'

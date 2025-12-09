@@ -3,7 +3,7 @@
 // src/components/Map/MapView.jsx
 // Mapbox GL JS implementation
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
@@ -25,9 +25,14 @@ const MapView = ({ center, zoom, children }) => {
   const [mapLoaded, setMapLoaded] = useState(false)
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
-  // Ensure we have valid center and zoom
-  const validCenter = (center && Array.isArray(center) && center.length === 2) ? center : [35.5, -83.0]
-  const validZoom = (zoom !== undefined && zoom !== null) ? zoom : 7
+  // Ensure we have valid center and zoom - memoize to avoid dependency issues
+  const validCenter = useMemo(() => {
+    return (center && Array.isArray(center) && center.length === 2) ? center : [35.5, -83.0]
+  }, [center])
+  
+  const validZoom = useMemo(() => {
+    return (zoom !== undefined && zoom !== null) ? zoom : 7
+  }, [zoom])
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return

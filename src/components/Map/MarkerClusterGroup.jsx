@@ -2,8 +2,7 @@
 // src/components/Map/MarkerClusterGroup.jsx
 // Mapbox GL JS clustering implementation
 
-import React, { useEffect, useRef } from 'react'
-import mapboxgl from 'mapbox-gl'
+import React, { useEffect } from 'react'
 
 const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
   const sourceId = 'parks-cluster-source'
