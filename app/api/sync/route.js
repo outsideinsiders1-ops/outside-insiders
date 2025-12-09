@@ -295,8 +295,19 @@ export async function POST(request) {
                     if (enrichedPark.phone && !park.phone) updateData.phone = enrichedPark.phone
                     if (enrichedPark.email && !park.email) updateData.email = enrichedPark.email
                     
-                    // Update activities if available
-                    if (enrichedPark.activities) updateData.activities = enrichedPark.activities
+                    // Update activities if available (merge with existing)
+                    if (enrichedPark.activities) {
+                      const existingActivities = park.activities || []
+                      const newActivities = Array.isArray(enrichedPark.activities) ? enrichedPark.activities : [enrichedPark.activities]
+                      updateData.activities = [...new Set([...existingActivities, ...newActivities])]
+                    }
+                    
+                    // Update amenities if available (merge with existing)
+                    if (enrichedPark.amenities) {
+                      const existingAmenities = park.amenities || []
+                      const newAmenities = Array.isArray(enrichedPark.amenities) ? enrichedPark.amenities : [enrichedPark.amenities]
+                      updateData.amenities = [...new Set([...existingAmenities, ...newAmenities])]
+                    }
                     
                     // Update other fields
                     if (enrichedPark.directions) updateData.directions = enrichedPark.directions
