@@ -63,13 +63,18 @@ export async function POST(request) {
           directory = pathParts.slice(0, -1).join('/') || 'uploads'
           baseFileName = pathParts[pathParts.length - 1]
           
-          // Check if chunks exist by listing the directory
+          // ALWAYS check for chunks first if filePath is provided
+          // When chunks are uploaded, there's no actual file at the public URL
           try {
-            const { data: files } = await supabaseServer.storage
+            const { data: files, error: listError } = await supabaseServer.storage
               .from('park-uploads')
               .list(directory)
             
-            if (files && files.length > 0) {
+            if (listError) {
+              console.warn('Could not list directory to check for chunks:', listError.message)
+              // If we can't list, try to download as regular file
+              isChunked = false
+            } else if (files && files.length > 0) {
               // Check if any files match the chunk pattern
               const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
               const chunkFiles = files.filter(f => chunkPattern.test(f.name))
@@ -77,10 +82,16 @@ export async function POST(request) {
               
               if (isChunked) {
                 console.log(`Detected ${chunkFiles.length} chunks for file: ${baseFileName}`)
+              } else {
+                console.log(`No chunks found for ${baseFileName}, will try to download as regular file`)
               }
+            } else {
+              // No files in directory, try regular file download
+              console.log(`No files found in directory ${directory}, will try to download as regular file`)
+              isChunked = false
             }
           } catch (listError) {
-            console.warn('Could not check for chunks, assuming regular file:', listError)
+            console.warn('Could not check for chunks, will try regular file download:', listError.message)
             isChunked = false
           }
         }

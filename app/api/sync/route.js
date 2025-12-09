@@ -311,7 +311,6 @@ export async function POST(request) {
                     
                     // Update other fields
                     if (enrichedPark.directions) updateData.directions = enrichedPark.directions
-                    if (enrichedPark.accessibility) updateData.accessibility = enrichedPark.accessibility
                     if (enrichedPark.website && !park.website) updateData.website = enrichedPark.website
                     
                     // Update state if we got it from addresses
