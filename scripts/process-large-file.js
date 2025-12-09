@@ -325,27 +325,57 @@ async function main() {
       const fileName = filePath.split('/').pop() || 'file.zip'
       file = new File([arrayBuffer], fileName, { type: 'application/zip' })
     } else {
-      // Read local file - create a File-like object for Node.js
+      // Read local file
       console.log('📥 Reading local file...')
       const fileData = readFileSync(filePath)
       const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'file.zip'
       
-      // Create a File-like object that works with our parsers
-      file = {
-        name: fileName,
-        arrayBuffer: async () => fileData.buffer,
-        text: async () => {
-          // Try to decode as text for JSON files
-          try {
-            return fileData.toString('utf-8')
-          } catch {
-            throw new Error('File is not text-based')
-          }
+      // Parse file directly based on extension
+      console.log('🔍 Parsing file...')
+      let geojson
+      
+      if (fileName.toLowerCase().endsWith('.zip') || fileName.toLowerCase().endsWith('.shp')) {
+        // Parse shapefile - create a File-like object
+        const fileLike = {
+          name: fileName,
+          arrayBuffer: async () => fileData.buffer
         }
+        geojson = await parseShapefile(fileLike)
+      } else if (fileName.toLowerCase().endsWith('.geojson') || fileName.toLowerCase().endsWith('.json')) {
+        // Parse GeoJSON
+        const text = fileData.toString('utf-8')
+        geojson = JSON.parse(text)
+      } else {
+        throw new Error(`Unsupported file type: ${fileName}. Expected .zip, .shp, .geojson, or .json`)
       }
+      
+      if (!geojson.type || !geojson.features) {
+        throw new Error('Invalid GeoJSON format')
+      }
+      
+      console.log(`✅ Parsed ${geojson.features.length} features`)
+      
+      // Process and upload
+      const results = await processAndUpload(
+        geojson,
+        options.sourceType,
+        options.sourceName,
+        options.defaultState
+      )
+      
+      console.log('\n' + '='.repeat(50))
+      console.log('✅ PROCESSING COMPLETE')
+      console.log('='.repeat(50))
+      console.log(`📊 Total parks: ${results.total}`)
+      console.log(`➕ Added: ${results.added}`)
+      console.log(`🔄 Updated: ${results.updated}`)
+      console.log(`⏭️  Skipped: ${results.skipped}`)
+      console.log('')
+      
+      return
     }
     
-    // Parse file
+    // For storage files, parse after download
     console.log('🔍 Parsing file...')
     let geojson
     
@@ -354,6 +384,10 @@ async function main() {
     } else {
       const text = await file.text()
       geojson = JSON.parse(text)
+    }
+    
+    if (!geojson.type || !geojson.features) {
+      throw new Error('Invalid GeoJSON format')
     }
     
     if (!geojson.type || !geojson.features) {
