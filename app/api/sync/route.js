@@ -5,7 +5,7 @@
  */
 
 import { fetchAllNPSParks } from '../../../lib/utils/nps-api.js'
-import { fetchRecreationFacilities, fetchRecreationFacilityAddresses } from '../../../lib/utils/recreation-gov-api.js'
+import { fetchRecreationFacilities, fetchRecreationFacilityAddresses, fetchRecreationFacilityById } from '../../../lib/utils/recreation-gov-api.js'
 import { mapNPSParksToSchema, mapRecreationGovToParkSchema } from '../../../lib/utils/api-field-mapper.js'
 import { insertOrUpdatePark } from '../../../lib/utils/db-operations.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
@@ -32,9 +32,9 @@ export async function POST(request) {
     console.log('🔵 Request method:', request.method)
     
     const body = await request.json().catch(() => ({}))
-    console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey })
+    console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey, augmentMode: body.augmentMode })
     
-    const { sourceType, apiKey } = body
+    const { sourceType, apiKey, augmentMode } = body
 
     // Validate required fields
     if (!sourceType) {
@@ -256,18 +256,17 @@ export async function POST(request) {
               }, { status: 400, headers })
             }
 
-            // STEP 1: First, check if facilities have state in the main response
-            // Many facilities have FacilityState in the main API response
-            let facilitiesWithState = 0
-            facilities.forEach(f => {
-              if (f.FacilityState) facilitiesWithState++
-            })
-            console.log(`📍 Facilities with state in main response: ${facilitiesWithState}/${facilities.length}`)
-            
-            // STEP 2: Map facilities to park schema (check FacilityState first)
+            // STEP 1: Map facilities to park schema
+            // The main API response includes FACILITYADDRESS array, so we can extract state from there
             let mappedParks = facilities.map(facility => {
-              return mapRecreationGovToParkSchema(facility, []) // Try without addresses first
+              // Pass the FACILITYADDRESS array from the main response
+              const addresses = facility.FACILITYADDRESS || []
+              return mapRecreationGovToParkSchema(facility, addresses)
             })
+            
+            // Check how many have state after mapping (from FACILITYADDRESS in main response)
+            let facilitiesWithState = mappedParks.filter(p => p.state).length
+            console.log(`📍 Facilities with state in main response (from FACILITYADDRESS): ${facilitiesWithState}/${facilities.length}`)
             
             // Check how many have state after initial mapping
             let missingState = mappedParks.filter(p => !p.state).length
