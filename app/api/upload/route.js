@@ -119,20 +119,34 @@ export async function POST(request) {
           console.log(`Found ${totalChunks} chunks matching pattern for ${baseFileName}`)
           
           if (totalChunks === 0) {
-            // No chunks found - this shouldn't happen if isChunked is true, but try regular file as fallback
-            console.log('⚠️ No chunks found despite isChunked=true, trying to download as regular file...')
+            // No chunks found - try to download as regular file
+            console.log('No chunks found, trying to download as regular file from storage...')
             try {
-              const response = await fetch(fileUrl)
-              if (!response.ok) {
-                throw new Error(`Failed to download file from storage: ${response.statusText}`)
+              // Try to download directly from Supabase Storage using the filePath
+              const { data: fileData, error: downloadError } = await supabaseServer.storage
+                .from('park-uploads')
+                .download(basePath)
+              
+              if (downloadError) {
+                // If direct download fails, try the public URL
+                console.log('Direct download failed, trying public URL...')
+                const response = await fetch(fileUrl)
+                if (!response.ok) {
+                  throw new Error(`Failed to download file from storage: ${response.statusText}. File may not exist or chunks may not have been uploaded correctly.`)
+                }
+                const blob = await response.blob()
+                const urlParts = fileUrl.split('/')
+                const urlFileName = urlParts[urlParts.length - 1].split('?')[0]
+                fileName = urlFileName || sourceName
+                fileToProcess = new File([blob], fileName, { type: blob.type })
+              } else {
+                // Direct download succeeded
+                const arrayBuffer = await fileData.arrayBuffer()
+                fileName = baseFileName || sourceName
+                fileToProcess = new File([arrayBuffer], fileName, { type: 'application/zip' })
               }
-              const blob = await response.blob()
-              const urlParts = fileUrl.split('/')
-              const urlFileName = urlParts[urlParts.length - 1].split('?')[0]
-              fileName = urlFileName || sourceName
-              fileToProcess = new File([blob], fileName, { type: blob.type })
             } catch (fetchError) {
-              throw new Error(`Failed to download file: ${fetchError.message}. Chunks may not have been uploaded correctly.`)
+              throw new Error(`Failed to download file: ${fetchError.message}. If this was a chunked upload, ensure all chunks were uploaded successfully.`)
             }
           } else {
             // Sort chunks by number to ensure correct order
@@ -244,15 +258,34 @@ export async function POST(request) {
             fileToProcess = new File([blob], fileName, { type: blob.type || 'application/octet-stream' })
           }
         } else {
-          // Regular file download
+          // Regular file download (no chunks detected)
           console.log('Downloading regular file (not chunked)')
-          const response = await fetch(fileUrl)
-          if (!response.ok) {
-            throw new Error(`Failed to download file from storage: ${response.statusText}`)
+          
+          // Try direct download from Supabase Storage first (more reliable)
+          let blob = null
+          if (filePath) {
+            try {
+              const { data: fileData, error: downloadError } = await supabaseServer.storage
+                .from('park-uploads')
+                .download(filePath)
+              
+              if (!downloadError && fileData) {
+                blob = await fileData.blob()
+                console.log('Downloaded file directly from Supabase Storage')
+              }
+            } catch (directError) {
+              console.warn('Direct download failed, trying public URL:', directError.message)
+            }
           }
           
-          // Get file as blob
-          const blob = await response.blob()
+          // Fallback to public URL if direct download didn't work
+          if (!blob) {
+            const response = await fetch(fileUrl)
+            if (!response.ok) {
+              throw new Error(`Failed to download file from storage: ${response.statusText}. If this was a chunked upload, ensure all chunks were uploaded successfully.`)
+            }
+            blob = await response.blob()
+          }
           
           // Create a File-like object from blob for processing
           // Extract filename from URL or use sourceName
