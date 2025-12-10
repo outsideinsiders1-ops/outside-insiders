@@ -130,7 +130,22 @@ export default function HomePage() {
       />
       
       <div className="main-content">
-        <div className="map-container">
+        <div className="map-container" style={{ position: 'relative' }}>
+          {loadingMore && parks.length > 0 && (
+            <div style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              background: 'rgba(255, 255, 255, 0.9)',
+              padding: '8px 12px',
+              borderRadius: '4px',
+              fontSize: '0.9rem',
+              zIndex: 1000,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              Loading more parks...
+            </div>
+          )}
           <MapView 
             center={mapCenter} 
             zoom={mapZoom}
