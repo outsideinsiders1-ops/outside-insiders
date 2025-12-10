@@ -88,7 +88,7 @@ const MapView = ({ center, zoom, children, onBoundsChange }) => {
       
       boundsChangeTimer.current = setTimeout(() => {
         onBoundsChange(viewportBounds)
-      }, 300) // 300ms debounce
+      }, 500) // 500ms debounce to reduce API calls during zooming
     }
 
     // Handle map load

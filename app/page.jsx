@@ -24,6 +24,7 @@ export default function HomePage() {
   const {
     parks,
     loading,
+    loadingMore,
     error,
     filters,
     setFilters,
@@ -84,7 +85,8 @@ export default function HomePage() {
 
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
 
-  if (loading) {
+  // Only show full loading screen on initial load
+  if (loading && parks.length === 0) {
     return (
       <div className="app">
         <Header />
@@ -93,7 +95,7 @@ export default function HomePage() {
     )
   }
 
-  if (error) {
+  if (error && parks.length === 0) {
     return (
       <div className="app">
         <Header />

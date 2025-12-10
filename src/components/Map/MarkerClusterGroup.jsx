@@ -198,30 +198,39 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       }
       
       // Get all points in the cluster
-      map.getSource(sourceId).getClusterLeaves(clusterId, pointCount, 0, (err, leaves) => {
+      const source = map.getSource(sourceId)
+      if (!source || typeof source.getClusterLeaves !== 'function') {
+        return
+      }
+
+      source.getClusterLeaves(clusterId, pointCount, 0, (err, leaves) => {
         if (err || !leaves || leaves.length === 0) {
           // Fallback to zoom in if spiderfy fails
-          map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (!err) {
-              map.easeTo({
-                center: center,
-                zoom: zoom
-              })
-            }
-          })
+          if (typeof source.getClusterExpansionZoom === 'function') {
+            source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+              if (!err) {
+                map.easeTo({
+                  center: center,
+                  zoom: zoom
+                })
+              }
+            })
+          }
           return
         }
 
         // If only a few markers, just zoom in (increased threshold to 10 for better UX)
         if (leaves.length <= 10) {
-          map.getSource(sourceId).getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (!err) {
-              map.easeTo({
-                center: center,
-                zoom: zoom
-              })
-            }
-          })
+          if (typeof source.getClusterExpansionZoom === 'function') {
+            source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+              if (!err) {
+                map.easeTo({
+                  center: center,
+                  zoom: zoom
+                })
+              }
+            })
+          }
           return
         }
 
