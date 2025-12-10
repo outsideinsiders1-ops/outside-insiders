@@ -199,8 +199,13 @@ export const enrichRecreationGovFacilities = inngest.createFunction(
           if (enrichedPark.phone && !existingPark.phone) updateData.phone = enrichedPark.phone
           if (enrichedPark.email && !existingPark.email) updateData.email = enrichedPark.email
 
-          // Update state if we got it from addresses
-          if (enrichedPark.state && !existingPark.state) updateData.state = enrichedPark.state
+          // Update state if we got it from addresses (and current state is N/A)
+          if (enrichedPark.state && (existingPark.state === 'N/A' || !existingPark.state)) {
+            // Only update if we got a valid state (not N/A)
+            if (enrichedPark.state !== 'N/A' && enrichedPark.state.trim() !== '') {
+              updateData.state = enrichedPark.state
+            }
+          }
 
           // Update activities if available (merge with existing)
           if (enrichedPark.activities) {
@@ -223,8 +228,8 @@ export const enrichRecreationGovFacilities = inngest.createFunction(
           if (enrichedPark.latitude && !existingPark.latitude) updateData.latitude = enrichedPark.latitude
           if (enrichedPark.longitude && !existingPark.longitude) updateData.longitude = enrichedPark.longitude
 
-          // If state is still missing but we have coordinates, try reverse geocoding
-          if (!updateData.state && !existingPark.state) {
+          // If state is still N/A but we have coordinates, try reverse geocoding
+          if (!updateData.state && (existingPark.state === 'N/A' || !existingPark.state)) {
             const lat = updateData.latitude || existingPark.latitude
             const lon = updateData.longitude || existingPark.longitude
             
@@ -344,10 +349,11 @@ export const startRecreationGovEnrichment = inngest.createFunction(
     console.log(`🚀 Starting Recreation.gov enrichment process`)
 
     // Step 1: Get all Recreation.gov facilities from database
+    // Optionally filter to only those with N/A state if needed, but for now get all
     const facilities = await step.run('fetch-facilities', async () => {
       const { data: parks, error } = await supabaseServer
         .from('parks')
-        .select('id, source_id')
+        .select('id, source_id, state')
         .eq('data_source', 'Recreation.gov API')
         .not('source_id', 'is', null)
 

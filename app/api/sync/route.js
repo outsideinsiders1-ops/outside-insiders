@@ -457,11 +457,17 @@ export async function POST(request) {
             console.log(`Facilities with state: ${mappedParks.length - missingState}/${mappedParks.length}, missing name: ${missingName}`)
             
             // STEP 4: For Recreation.gov, skip geocoding completely
-            // Parks will be saved without state and can be enriched later via Inngest background jobs
-            const stillMissingState = mappedParks.filter(p => !p.state).length
+            // Parks will be saved with "N/A" state and can be enriched later via Inngest background jobs
+            // Set state to "N/A" for facilities missing state (database NOT NULL constraint)
+            mappedParks.forEach(park => {
+              if (!park.state || park.state.trim() === '') {
+                park.state = 'N/A'
+              }
+            })
+            const stillMissingState = mappedParks.filter(p => p.state === 'N/A').length
             if (stillMissingState > 0) {
-              console.log(`📍 ${stillMissingState} facilities missing state. Skipping geocoding for Recreation.gov sync.`)
-              console.log(`ℹ️  Parks will be saved without state and enriched later via Inngest background jobs using facility{id} endpoint.`)
+              console.log(`📍 ${stillMissingState} facilities will be saved with "N/A" state.`)
+              console.log(`ℹ️  Parks will be enriched later via Inngest background jobs using facility{id} endpoint.`)
             }
             
             if (mappedParks.length > 0) {
@@ -485,8 +491,7 @@ export async function POST(request) {
                 }
                 
                 // Validate required fields
-                // Note: State is preferred but not strictly required if we have coordinates
-                // We'll try to save parks with coordinates even without state
+                // State will be set to "N/A" if missing (required by database NOT NULL constraint)
                 if (!park.name) {
                   parksSkipped++
                   errors.push({
@@ -496,20 +501,10 @@ export async function POST(request) {
                   continue
                 }
                 
-                // Track parks without state but with coordinates (these can still be saved)
-                if (!park.state && park.latitude && park.longitude) {
+                // Set state to "N/A" if missing (database requires NOT NULL)
+                if (!park.state || park.state.trim() === '') {
+                  park.state = 'N/A'
                   parksWithoutState++
-                  // We'll still try to save these - state can be added later via geocoding
-                }
-                
-                // Only skip if missing both state AND coordinates
-                if (!park.state && (!park.latitude || !park.longitude)) {
-                  parksSkipped++
-                  errors.push({
-                    park: park.name || 'Unknown',
-                    error: `Missing required fields - state and coordinates both missing`
-                  })
-                  continue
                 }
 
                 // Insert or update park
@@ -538,7 +533,7 @@ export async function POST(request) {
             console.log(`=== RECREATION.GOV API SYNC COMPLETE ===`)
             console.log(`Processed: ${processedCount}/${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
             if (parksWithoutState > 0) {
-              console.log(`ℹ️ Note: ${parksWithoutState} parks were saved without state (have coordinates, can be geocoded later via admin panel)`)
+              console.log(`ℹ️ Note: ${parksWithoutState} parks were saved with "N/A" state (have coordinates, can be geocoded later via enrichment or admin panel)`)
             }
             
             // Log if we didn't process all parks

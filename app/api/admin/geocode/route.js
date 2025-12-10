@@ -39,14 +39,14 @@ export async function POST(request) {
     console.log('=== GEOCODING REQUEST ===')
     console.log(`Limit: ${limit}, State: ${state || 'All'}, Use Geometry: ${useGeometry}, Type: ${geocodeType}`)
 
-    // Step 1: Find parks missing coordinates OR missing state
+    // Step 1: Find parks missing coordinates OR missing state (N/A)
     let query
     if (geocodeType === 'state') {
-      // Find parks missing state but with coordinates
+      // Find parks with N/A state but with coordinates
       query = supabaseServer
         .from('parks')
         .select('id, name, state, address, latitude, longitude, geometry')
-        .is('state', null)
+        .eq('state', 'N/A')
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
         .limit(limit)
