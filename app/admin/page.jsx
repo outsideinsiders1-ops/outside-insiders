@@ -1655,7 +1655,12 @@ function AdminPanel() {
                     </p>
                     {enrichResult.eventId && (
                       <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
-                        Event ID: {enrichResult.eventId}
+                        Event ID: {typeof enrichResult.eventId === 'string' ? enrichResult.eventId : enrichResult.eventId?.ids?.[0] || 'Unknown'}
+                      </p>
+                    )}
+                    {enrichResult.details && (
+                      <p style={{ marginTop: '5px', fontSize: '0.85rem', color: '#666', fontStyle: 'italic' }}>
+                        {enrichResult.details}
                       </p>
                     )}
                   </div>

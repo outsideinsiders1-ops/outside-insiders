@@ -35,21 +35,41 @@ export async function POST(request) {
 
     console.log('🚀 Triggering Recreation.gov enrichment process via Inngest')
 
-    // Trigger the orchestrator function
-    const eventId = await inngest.send({
-      name: 'recreation-gov/start-enrichment',
-      data: {
-        apiKey: effectiveApiKey,
-        batchSize: parseInt(batchSize) || 50
-      }
-    })
+    try {
+      // Trigger the orchestrator function
+      const result = await inngest.send({
+        name: 'recreation-gov/start-enrichment',
+        data: {
+          apiKey: effectiveApiKey,
+          batchSize: parseInt(batchSize) || 50
+        }
+      })
 
-    return Response.json({
-      success: true,
-      message: 'Recreation.gov enrichment process started',
-      eventId,
-      details: 'The enrichment process is running in the background. Facilities will be processed in batches and enriched with detailed data from the facility{id} endpoint.'
-    }, { status: 200, headers })
+      // Inngest returns {ids: [...]} - extract first ID for display
+      const eventId = result?.ids?.[0] || 'Unknown'
+
+      console.log(`✅ Enrichment event sent. Event IDs: ${result?.ids?.join(', ') || 'Unknown'}`)
+
+      return Response.json({
+        success: true,
+        message: 'Recreation.gov enrichment process started',
+        eventId: eventId,
+        eventIds: result?.ids || [],
+        details: 'The enrichment process is running in the background. Facilities will be processed in batches and enriched with detailed data from the facility{id} endpoint.'
+      }, { status: 200, headers })
+    } catch (inngestError) {
+      console.error('Inngest send error:', inngestError)
+      // Check if Inngest is properly configured
+      if (inngestError.message?.includes('INNGEST_EVENT_KEY') || inngestError.message?.includes('signing key')) {
+        return Response.json({
+          success: false,
+          error: 'Inngest not configured',
+          message: 'Inngest event key is missing. Please set INNGEST_EVENT_KEY environment variable.',
+          details: 'The enrichment process requires Inngest to be properly configured. Check your environment variables.'
+        }, { status: 500, headers })
+      }
+      throw inngestError // Re-throw to be caught by outer catch
+    }
 
   } catch (error) {
     console.error('Error triggering Recreation.gov enrichment:', error)

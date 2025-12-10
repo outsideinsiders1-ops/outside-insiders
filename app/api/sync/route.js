@@ -13,6 +13,7 @@ import { supabaseServer } from '../../../lib/supabase-server.js'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes (Vercel Pro max, Hobby plan limited to 10s)
+// Note: For large Recreation.gov syncs, consider using Inngest background jobs instead
 
 export async function POST(request) {
   // CRITICAL: This is /api/sync route, NOT /api/scrape
