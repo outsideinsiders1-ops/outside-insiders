@@ -44,6 +44,12 @@ function AdminPanel() {
   const [syncResult, setSyncResult] = useState(null);
   const [syncError, setSyncError] = useState(null);
   const [savedApiConfigs, setSavedApiConfigs] = useState([]); // Array of { sourceType, apiKey, lastUsed }
+  
+  // Recreation.gov Enrichment state
+  const [enrichLoading, setEnrichLoading] = useState(false);
+  const [enrichResult, setEnrichResult] = useState(null);
+  const [enrichError, setEnrichError] = useState(null);
+  const [enrichBatchSize, setEnrichBatchSize] = useState(50);
 
   // Data Quality state
   
@@ -591,6 +597,57 @@ function AdminPanel() {
       }
     } finally {
       setUploadLoading(false)
+    }
+  };
+
+  // ==================== RECREATION.GOV ENRICHMENT HANDLER ====================
+  const handleRecreationGovEnrichment = async () => {
+    // Use the same API key from sync if available, or try to get from saved configs
+    let apiKey = syncSourceType === 'Recreation.gov' && syncApiKey.trim() 
+      ? syncApiKey.trim() 
+      : null;
+
+    // If no API key in sync field, try to get from saved configs
+    if (!apiKey) {
+      const recGovConfig = savedApiConfigs.find(c => c.sourceType === 'Recreation.gov');
+      if (recGovConfig) {
+        apiKey = recGovConfig.apiKey;
+      }
+    }
+
+    if (!apiKey) {
+      setEnrichError('API key is required. Please enter your Recreation.gov API key in the sync section above, or load a saved configuration.');
+      return;
+    }
+
+    setEnrichLoading(true);
+    setEnrichError(null);
+    setEnrichResult(null);
+
+    try {
+      const response = await fetch('/api/sync/recreation-gov-enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey: apiKey,
+          batchSize: parseInt(enrichBatchSize) || 50,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Enrichment failed');
+      }
+
+      setEnrichResult(data);
+    } catch (err) {
+      console.error('Enrichment error:', err);
+      setEnrichError(err.message || 'Failed to start enrichment process');
+    } finally {
+      setEnrichLoading(false);
     }
   };
 
@@ -1490,6 +1547,42 @@ function AdminPanel() {
                         <li><strong>Parks Updated:</strong> {syncResult.parksUpdated}</li>
                       )}
                     </ul>
+                    
+                    {/* Show enrichment option for Recreation.gov */}
+                    {syncSourceType === 'Recreation.gov' && syncResult.parksFound > 0 && (
+                      <div style={{ marginTop: '20px', padding: '15px', background: '#e8f4f8', borderRadius: '8px', border: '2px solid #007bff' }}>
+                        <h4 style={{ marginTop: 0 }}>🚀 Next Step: Enrich Facilities</h4>
+                        <p style={{ marginBottom: '15px' }}>
+                          Your facilities have been synced! Now enrich them with detailed data from the Recreation.gov API.
+                          This will run in the background and take approximately 2.5 hours for ~15,000 facilities.
+                        </p>
+                        <div style={{ marginBottom: '10px' }}>
+                          <label style={{ display: 'block', marginBottom: '5px' }}>
+                            Batch Size (facilities per batch):
+                          </label>
+                          <input
+                            type="number"
+                            value={enrichBatchSize}
+                            onChange={(e) => setEnrichBatchSize(e.target.value)}
+                            min="10"
+                            max="100"
+                            disabled={enrichLoading}
+                            style={{ width: '100px', padding: '5px' }}
+                          />
+                          <span style={{ marginLeft: '10px', fontSize: '0.9rem', color: '#666' }}>
+                            (Default: 50, recommended for ~2.5 hour completion)
+                          </span>
+                        </div>
+                        <button
+                          onClick={handleRecreationGovEnrichment}
+                          disabled={enrichLoading || !syncApiKey.trim()}
+                          className="primary-button"
+                          style={{ width: '100%' }}
+                        >
+                          {enrichLoading ? '⏳ Starting Enrichment...' : '🚀 Start Background Enrichment'}
+                        </button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1511,6 +1604,61 @@ function AdminPanel() {
                       </p>
                     )}
                   </>
+                )}
+              </div>
+            )}
+
+            {/* Recreation.gov Enrichment Section (standalone) */}
+            {syncSourceType === 'Recreation.gov' && (
+              <div style={{ marginTop: '30px', padding: '20px', background: '#e8f4f8', borderRadius: '8px', border: '1px solid #007bff' }}>
+                <h3 style={{ marginTop: 0 }}>🔧 Recreation.gov Enrichment</h3>
+                <p style={{ marginBottom: '15px' }}>
+                  Enrich existing Recreation.gov facilities with detailed data. This process runs in the background
+                  and will update facilities with information from the facility{'{id}'} endpoint.
+                </p>
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', marginBottom: '5px' }}>
+                    Batch Size (facilities per batch):
+                  </label>
+                  <input
+                    type="number"
+                    value={enrichBatchSize}
+                    onChange={(e) => setEnrichBatchSize(e.target.value)}
+                    min="10"
+                    max="100"
+                    disabled={enrichLoading}
+                    style={{ width: '100px', padding: '5px' }}
+                  />
+                  <span style={{ marginLeft: '10px', fontSize: '0.9rem', color: '#666' }}>
+                    (Default: 50)
+                  </span>
+                </div>
+                <button
+                  onClick={handleRecreationGovEnrichment}
+                  disabled={enrichLoading || !syncApiKey.trim()}
+                  className="primary-button"
+                >
+                  {enrichLoading ? '⏳ Starting Enrichment...' : '🚀 Start Enrichment'}
+                </button>
+                
+                {enrichError && (
+                  <div className="error-message" style={{ marginTop: '15px', padding: '15px', background: '#fee', borderRadius: '8px' }}>
+                    <strong>❌ Error:</strong> {enrichError}
+                  </div>
+                )}
+                
+                {enrichResult && (
+                  <div className="success-message" style={{ marginTop: '15px', padding: '15px', background: '#f0f7ed', borderRadius: '8px' }}>
+                    <strong>✅ Enrichment Started!</strong>
+                    <p style={{ marginTop: '10px', marginBottom: 0 }}>
+                      {enrichResult.message || 'The enrichment process is running in the background.'}
+                    </p>
+                    {enrichResult.eventId && (
+                      <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                        Event ID: {enrichResult.eventId}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
