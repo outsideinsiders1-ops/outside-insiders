@@ -112,9 +112,81 @@ export async function POST(request) {
             throw new Error(`Failed to list chunks: ${listError.message}`)
           }
           
+          console.log(`Listing directory "${directory}" - found ${files?.length || 0} files`)
+          if (files && files.length > 0) {
+            console.log('All files in directory:', files.map(f => f.name))
+          }
+          
+          // First, check if there are ANY chunk files in the directory
+          const allChunkFiles = (files || []).filter(f => f.name.includes('.chunk.'))
+          console.log(`Found ${allChunkFiles.length} total chunk files in directory`)
+          
+          if (allChunkFiles.length > 0) {
+            console.log('Chunk files found:', allChunkFiles.map(f => f.name))
+          }
+          
           // Count chunks that match our base filename (chunks are named: baseFileName.chunk.0, baseFileName.chunk.1, etc.)
-          const chunkPattern = new RegExp(`^${baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.chunk\\.\\d+$`)
-          const chunkFiles = (files || []).filter(f => chunkPattern.test(f.name))
+          const escapedBaseFileName = baseFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const chunkPattern = new RegExp(`^${escapedBaseFileName}\\.chunk\\.\\d+$`)
+          let chunkFiles = (files || []).filter(f => {
+            const matches = chunkPattern.test(f.name)
+            if (matches) {
+              console.log(`Matched chunk: ${f.name}`)
+            }
+            return matches
+          })
+          
+          // Also try to find chunks with any timestamp prefix (in case filePath changed)
+          if (chunkFiles.length === 0 && allChunkFiles.length > 0) {
+            console.log('No exact matches found, trying to find chunks with any timestamp prefix...')
+            // Extract original filename (remove timestamp if present)
+            const originalFileName = baseFileName.replace(/^\d+-/, '')
+            const escapedOriginal = originalFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const flexiblePattern = new RegExp(`^\\d+-${escapedOriginal}\\.chunk\\.\\d+$`)
+            const flexibleMatches = (files || []).filter(f => {
+              const matches = flexiblePattern.test(f.name)
+              if (matches) {
+                console.log(`Found chunk with flexible pattern: ${f.name}`)
+              }
+              return matches
+            })
+            
+            if (flexibleMatches.length > 0) {
+              console.log(`Found ${flexibleMatches.length} chunks with flexible pattern matching`)
+              // Use the first match to determine the actual base path
+              const firstMatch = flexibleMatches[0].name
+              const actualBaseFileName = firstMatch.replace(/\.chunk\.\d+$/, '')
+              basePath = directory ? `${directory}/${actualBaseFileName}` : actualBaseFileName
+              baseFileName = actualBaseFileName
+              chunkFiles = flexibleMatches
+            } else {
+              // Last resort: if we found chunk files but pattern doesn't match, try to use them anyway
+              // This handles cases where the filename might have changed slightly
+              console.log('Found chunk files but pattern matching failed. Attempting to use any chunk files...')
+              if (allChunkFiles.length > 0) {
+                // Group chunks by base name (everything before .chunk.)
+                const chunkGroups = {}
+                allChunkFiles.forEach(f => {
+                  const baseName = f.name.replace(/\.chunk\.\d+$/, '')
+                  if (!chunkGroups[baseName]) {
+                    chunkGroups[baseName] = []
+                  }
+                  chunkGroups[baseName].push(f)
+                })
+                
+                // Use the group with the most chunks (likely our file)
+                const largestGroup = Object.values(chunkGroups).sort((a, b) => b.length - a.length)[0]
+                if (largestGroup && largestGroup.length > 0) {
+                  console.log(`Using chunk group with ${largestGroup.length} chunks: ${largestGroup[0].name.replace(/\.chunk\.\d+$/, '')}`)
+                  const actualBaseFileName = largestGroup[0].name.replace(/\.chunk\.\d+$/, '')
+                  basePath = directory ? `${directory}/${actualBaseFileName}` : actualBaseFileName
+                  baseFileName = actualBaseFileName
+                  chunkFiles = largestGroup
+                }
+              }
+            }
+          }
+          
           const totalChunks = chunkFiles.length
           
           console.log(`Found ${totalChunks} chunks matching pattern for ${baseFileName}`)
@@ -188,8 +260,29 @@ export async function POST(request) {
             }
             
             // Reassemble chunks using the sorted chunk files
-            // We'll download chunks in order based on the sorted list
+            // Use the actual chunk file names from the sorted list instead of constructing paths
             const chunks = []
+            const chunkNumbers = chunkFiles.map(f => {
+              const match = f.name.match(/\.chunk\.(\d+)$/)
+              return match ? parseInt(match[1]) : -1
+            }).filter(n => n >= 0).sort((a, b) => a - b)
+            
+            console.log(`Chunk numbers found: ${chunkNumbers.join(', ')}`)
+            console.log(`Expected range: 0 to ${totalChunks - 1}`)
+            
+            // Check for missing chunks
+            const missingChunks = []
+            for (let i = 0; i < totalChunks; i++) {
+              if (!chunkNumbers.includes(i)) {
+                missingChunks.push(i)
+              }
+            }
+            
+            if (missingChunks.length > 0) {
+              throw new Error(`Missing chunks: ${missingChunks.join(', ')}. Expected ${totalChunks} chunks but found ${chunkNumbers.length}.`)
+            }
+            
+            // Download chunks in order
             for (let i = 0; i < totalChunks; i++) {
               const chunkPath = `${basePath}.chunk.${i}`
               console.log(`Downloading chunk ${i + 1}/${totalChunks}: ${chunkPath}`)
@@ -200,17 +293,25 @@ export async function POST(request) {
                   .download(chunkPath)
                 
                 if (error) {
-                  throw new Error(`Failed to download chunk ${i + 1}/${totalChunks}: ${error.message}`)
+                  console.error(`Chunk download error details:`, {
+                    chunkPath,
+                    error: error.message,
+                    errorCode: error.statusCode
+                  })
+                  throw new Error(`Failed to download chunk ${i + 1}/${totalChunks} (${chunkPath}): ${error.message}`)
                 }
                 
                 if (!data) {
                   throw new Error(`Chunk ${i + 1}/${totalChunks} returned no data`)
                 }
                 
-                chunks.push(await data.arrayBuffer())
+                const arrayBuffer = await data.arrayBuffer()
+                chunks.push(arrayBuffer)
+                
+                console.log(`Chunk ${i + 1}/${totalChunks} downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)} MB`)
                 
                 // Log progress every 10 chunks
-                if ((i + 1) % 10 === 0) {
+                if ((i + 1) % 10 === 0 || i === totalChunks - 1) {
                   console.log(`Downloaded ${i + 1}/${totalChunks} chunks (${Math.round((i + 1) / totalChunks * 100)}%)`)
                 }
               } catch (error) {
@@ -262,30 +363,71 @@ export async function POST(request) {
           // Regular file download (no chunks detected)
           console.log('Downloading regular file (not chunked)')
           
-          // Try direct download from Supabase Storage first (more reliable)
+          // For files < 150MB, try direct download from Supabase Storage
           let blob = null
           if (filePath) {
             try {
+              console.log(`Attempting direct download from path: ${filePath}`)
               const { data: fileData, error: downloadError } = await supabaseServer.storage
                 .from('park-uploads')
                 .download(filePath)
               
               if (!downloadError && fileData) {
                 blob = await fileData.blob()
-                console.log('Downloaded file directly from Supabase Storage')
+                console.log(`Downloaded file directly: ${(blob.size / 1024 / 1024).toFixed(2)} MB`)
+              } else if (downloadError) {
+                console.warn('Direct download error:', downloadError.message, downloadError.statusCode)
+                // If direct download fails, it might be chunked but detection failed
+                // Check if chunks exist with a more flexible pattern
+                console.log('Direct download failed, checking if file might be chunked...')
+                const { data: checkFiles } = await supabaseServer.storage
+                  .from('park-uploads')
+                  .list(directory)
+                
+                if (checkFiles) {
+                  // Look for any .chunk files in the directory
+                  const anyChunks = checkFiles.filter(f => f.name.includes('.chunk.'))
+                  if (anyChunks.length > 0) {
+                    console.log(`Found ${anyChunks.length} chunk files but pattern didn't match. Chunk files:`, anyChunks.slice(0, 5).map(f => f.name))
+                    throw new Error(
+                      `File appears to be chunked (found ${anyChunks.length} chunk files) but chunk detection failed. ` +
+                      `Please ensure all chunks were uploaded with the correct naming pattern: ${baseFileName}.chunk.0, ${baseFileName}.chunk.1, etc.`
+                    )
+                  }
+                }
               }
             } catch (directError) {
-              console.warn('Direct download failed, trying public URL:', directError.message)
+              console.warn('Direct download failed:', directError.message)
+              // Continue to try public URL
             }
           }
           
           // Fallback to public URL if direct download didn't work
           if (!blob) {
-            const response = await fetch(fileUrl)
-            if (!response.ok) {
-              throw new Error(`Failed to download file from storage: ${response.statusText}. If this was a chunked upload, ensure all chunks were uploaded successfully.`)
+            console.log('Trying public URL download...')
+            try {
+              const response = await fetch(fileUrl)
+              if (!response.ok) {
+                // Provide more helpful error message
+                if (response.status === 400) {
+                  throw new Error(
+                    `File not found at public URL (Bad Request). ` +
+                    `If this was a chunked upload, the chunks may not have been uploaded correctly, ` +
+                    `or the file may be too large for direct download. ` +
+                    `Please check that all chunks were uploaded successfully.`
+                  )
+                }
+                throw new Error(`Failed to download file from storage: ${response.status} ${response.statusText}`)
+              }
+              blob = await response.blob()
+              console.log(`Downloaded from public URL: ${(blob.size / 1024 / 1024).toFixed(2)} MB`)
+            } catch (fetchError) {
+              throw new Error(
+                `Failed to download file: ${fetchError.message}. ` +
+                `If this was a chunked upload, ensure all chunks were uploaded successfully. ` +
+                `File path: ${filePath || 'unknown'}`
+              )
             }
-            blob = await response.blob()
           }
           
           // Create a File-like object from blob for processing
@@ -294,7 +436,7 @@ export async function POST(request) {
           const urlFileName = urlParts[urlParts.length - 1].split('?')[0] // Remove query params
           fileName = urlFileName || sourceName
           
-          fileToProcess = new File([blob], fileName, { type: blob.type })
+          fileToProcess = new File([blob], fileName, { type: blob.type || 'application/octet-stream' })
         }
       } catch (error) {
         console.error('File download/reassembly error:', error)
