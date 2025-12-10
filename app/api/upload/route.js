@@ -14,6 +14,7 @@ import { normalizeParkName } from '../../../lib/utils/db-operations.js'
 import { cleanupChunks } from '../../../lib/utils/chunked-upload.js'
 import { supabaseServer } from '../../../lib/supabase-server.js'
 import { normalizeStateToCode } from '../../../lib/utils/state-normalizer.js'
+import { inngest } from '../../../inngest/client.js'
 
 // Increase timeout for large file processing (5 minutes)
 // Note: Vercel Hobby plan has 10s limit, Pro plan supports up to 300s
@@ -322,6 +323,50 @@ export async function POST(request) {
         success: false, 
         error: 'No file provided. Please upload a file or provide a file URL.' 
       }, { status: 400, headers })
+    }
+
+    // Check if file should be processed in background (large files)
+    const fileSize = fileToProcess.size || 0
+    const filePath = formData.get('filePath') || null
+    const LARGE_FILE_THRESHOLD = 500 * 1024 * 1024 // 500MB
+    const LARGE_FEATURE_THRESHOLD = 10000 // 10,000 features
+
+    // For large files or if filePath is provided (chunked upload), use background processing
+    if (fileSize > LARGE_FILE_THRESHOLD || filePath) {
+      console.log(`📦 File is large (${(fileSize / 1024 / 1024).toFixed(2)} MB) or chunked. Queuing for background processing...`)
+      
+      // If we have a filePath, use it; otherwise, we need to upload first
+      if (!filePath) {
+        return Response.json({
+          success: false,
+          error: 'Large files must be uploaded in chunks first. Please use the chunked upload feature.'
+        }, { status: 400, headers })
+      }
+
+      // Trigger Inngest background job
+      try {
+        await inngest.send({
+          name: 'file/process',
+          data: {
+            filePath: filePath,
+            bucketName: 'park-uploads',
+            sourceType: sourceType,
+            sourceName: sourceName,
+            defaultState: defaultState
+          }
+        })
+
+        return Response.json({
+          success: true,
+          message: 'File queued for background processing. This may take several minutes for large files.',
+          backgroundJob: true,
+          filePath: filePath
+        }, { headers })
+      } catch (error) {
+        console.error('Failed to queue background job:', error)
+        // Fall back to direct processing if Inngest fails
+        console.log('Falling back to direct processing...')
+      }
     }
     
     // Check file type
