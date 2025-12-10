@@ -455,7 +455,7 @@ function AdminPanel() {
 
     let filePath = null; // Track file path for cleanup
     const fileSizeMB = uploadFile.size / 1024 / 1024;
-    const useChunkedUpload = fileSizeMB > 50; // Use chunked upload for files > 50MB
+    const useChunkedUpload = fileSizeMB > 200; // Use chunked upload for files > 200MB
 
     try {
       // Step 1: Upload file to Supabase Storage (chunked if large)

@@ -54,11 +54,29 @@ export default function HomePage() {
     setSortByDistance(true)
   }, [setUserLocation, setSortByDistance])
 
-  // Handle park marker click
-  const handleParkClick = useCallback((park) => {
+  // Handle park marker click - fetch full park details
+  const handleParkClick = useCallback(async (park) => {
+    // Set basic park info immediately for responsive UI
     setSelectedPark(park)
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(config.map.detailZoom)
+    
+    // Fetch full park details from server (including boundary, description, etc.)
+    try {
+      const response = await fetch(`/api/parks/${park.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.park) {
+          // Update with full park details
+          setSelectedPark(data.park)
+        }
+      } else {
+        console.warn('Failed to fetch full park details, using basic info')
+      }
+    } catch (error) {
+      console.error('Error fetching park details:', error)
+      // Continue with basic park info if fetch fails
+    }
     // Boundary will auto-load and display via ParkDetail component
   }, [])
 
