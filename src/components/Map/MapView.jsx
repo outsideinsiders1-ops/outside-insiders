@@ -19,11 +19,12 @@ function checkWebGLSupport() {
   }
 }
 
-const MapView = ({ center, zoom, children }) => {
+const MapView = ({ center, zoom, children, onBoundsChange }) => {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  const boundsChangeTimer = useRef(null)
 
   // Ensure we have valid center and zoom - memoize to avoid dependency issues
   const validCenter = useMemo(() => {
@@ -65,11 +66,46 @@ const MapView = ({ center, zoom, children }) => {
     // Add navigation controls
     map.current.addControl(new mapboxgl.NavigationControl(), 'top-right')
 
+    // Track viewport changes for viewport-based loading
+    const updateBounds = () => {
+      if (!map.current || !onBoundsChange) return
+      
+      const bounds = map.current.getBounds()
+      const ne = bounds.getNorthEast()
+      const sw = bounds.getSouthWest()
+      
+      const viewportBounds = {
+        north: ne.lat,
+        south: sw.lat,
+        east: ne.lng,
+        west: sw.lng
+      }
+      
+      // Debounce bounds updates to avoid excessive calls
+      if (boundsChangeTimer.current) {
+        clearTimeout(boundsChangeTimer.current)
+      }
+      
+      boundsChangeTimer.current = setTimeout(() => {
+        onBoundsChange(viewportBounds)
+      }, 300) // 300ms debounce
+    }
+
     // Handle map load
     map.current.on('load', () => {
       setMapLoaded(true)
       console.log('Mapbox GL map loaded')
+      // Get initial bounds
+      if (onBoundsChange) {
+        updateBounds()
+      }
     })
+
+    // Listen to map move/zoom events for viewport-based loading
+    if (onBoundsChange) {
+      map.current.on('moveend', updateBounds)
+      map.current.on('zoomend', updateBounds)
+    }
 
     // Handle errors
     map.current.on('error', (e) => {
@@ -78,7 +114,14 @@ const MapView = ({ center, zoom, children }) => {
 
     // Cleanup
     return () => {
+      if (boundsChangeTimer.current) {
+        clearTimeout(boundsChangeTimer.current)
+      }
       if (map.current) {
+        if (onBoundsChange) {
+          map.current.off('moveend', updateBounds)
+          map.current.off('zoomend', updateBounds)
+        }
         map.current.remove()
         map.current = null
         setMapLoaded(false)

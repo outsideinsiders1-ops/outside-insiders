@@ -11,12 +11,62 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
 /**
- * Fetch parks with filters
+ * Fetch parks by viewport bounds (for map performance)
+ * Uses bounding box query to only fetch parks visible in current viewport
+ * @param {Object} bounds - Bounding box {north, south, east, west}
+ * @param {Object} filters - Additional filters (agency, state, etc.)
+ * @returns {Promise<Array>} Array of park objects
  */
-export async function fetchParks(filters = {}) {
+export async function fetchParksByBounds(bounds, filters = {}) {
+  if (!bounds || !bounds.north || !bounds.south || !bounds.east || !bounds.west) {
+    // Fallback to regular fetch if bounds not provided
+    return fetchParks(filters)
+  }
+
+  // Select only essential fields for map markers to reduce payload
   let query = supabase
     .from('parks')
-    .select('*')
+    .select('id, name, latitude, longitude, agency, state, source_id, data_source')
+    .not('latitude', 'is', null)
+    .not('longitude', 'is', null)
+    // Use bounding box filter: parks within viewport
+    .gte('latitude', bounds.south)
+    .lte('latitude', bounds.north)
+    .gte('longitude', bounds.west)
+    .lte('longitude', bounds.east)
+
+  // Apply agency filter if provided
+  if (filters.agency) {
+    query = query.eq('agency', filters.agency)
+  }
+
+  // Apply state filter if provided
+  if (filters.state) {
+    query = query.eq('state', filters.state)
+  }
+
+  // Apply land type filter (client-side for now, can be optimized later)
+  // For now, we'll filter client-side after fetching
+
+  const { data, error } = await query
+
+  if (error) {
+    console.error('Error fetching parks by bounds:', error)
+    throw error
+  }
+
+  return data || []
+}
+
+/**
+ * Fetch parks with filters (fallback for non-viewport loading)
+ * @deprecated Use fetchParksByBounds for better performance
+ */
+export async function fetchParks(filters = {}) {
+  // Select only essential fields for map markers
+  let query = supabase
+    .from('parks')
+    .select('id, name, latitude, longitude, agency, state, source_id, data_source')
     .not('latitude', 'is', null)
     .not('longitude', 'is', null)
 
@@ -41,7 +91,7 @@ export async function fetchParks(filters = {}) {
 }
 
 /**
- * Fetch a single park by ID
+ * Fetch a single park by ID (with all fields for detail view)
  */
 export async function fetchParkById(id) {
   const { data, error } = await supabase

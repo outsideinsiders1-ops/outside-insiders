@@ -19,6 +19,8 @@ const ParkBoundary = dynamic(() => import('../src/components/Map/ParkBoundary'),
 const MarkerClusterGroup = dynamic(() => import('../src/components/Map/MarkerClusterGroup'), { ssr: false })
 
 export default function HomePage() {
+  const [viewportBounds, setViewportBounds] = useState(null)
+  
   const {
     parks,
     loading,
@@ -29,7 +31,7 @@ export default function HomePage() {
     setUserLocation,
     sortByDistance,
     setSortByDistance,
-  } = useParks()
+  } = useParks(viewportBounds)
 
   const [mapCenter, setMapCenter] = useState(config.map.defaultCenter)
   const [mapZoom, setMapZoom] = useState(config.map.defaultZoom)
@@ -37,6 +39,11 @@ export default function HomePage() {
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false)
   const [parkBoundary, setParkBoundary] = useState(null)
   // Boundary auto-shows when park is selected (no toggle state needed)
+
+  // Handle viewport bounds change from map
+  const handleBoundsChange = useCallback((bounds) => {
+    setViewportBounds(bounds)
+  }, [])
 
   // Handle location found from search or near me
   const handleLocationFound = useCallback((location) => {
@@ -125,6 +132,7 @@ export default function HomePage() {
           <MapView 
             center={mapCenter} 
             zoom={mapZoom}
+            onBoundsChange={handleBoundsChange}
           >
             <MarkerClusterGroup
               parks={parks}
