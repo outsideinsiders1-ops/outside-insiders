@@ -15,6 +15,18 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
   useEffect(() => {
     if (!map || !mapLoaded || !parks || parks.length === 0) return
 
+    // Safety check: ensure map is fully loaded and ready
+    if (!map.isStyleLoaded()) {
+      // Wait for style to load
+      map.once('styledata', () => {
+        // Retry after style loads
+        if (parks && parks.length > 0) {
+          // This will be handled by the useEffect dependency
+        }
+      })
+      return
+    }
+
     // Convert parks to GeoJSON - ensure all park data is in properties
     // Also normalize agency for color mapping
     const geojson = {
@@ -47,22 +59,53 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       })
     }
 
+    // Helper function to safely check if source/layer exists
+    const hasSource = (id) => {
+      try {
+        return map.getSource(id) !== undefined
+      } catch {
+        return false
+      }
+    }
+
+    const hasLayer = (id) => {
+      try {
+        return map.getLayer(id) !== undefined
+      } catch {
+        return false
+      }
+    }
+
     // Add source
-    if (!map.getSource(sourceId)) {
-      map.addSource(sourceId, {
-        type: 'geojson',
-        data: geojson,
-        cluster: true,
-        clusterMaxZoom: 14, // Max zoom to cluster points on
-        clusterRadius: 50, // Radius of each cluster when clustering points
-      })
+    if (!hasSource(sourceId)) {
+      try {
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: geojson,
+          cluster: true,
+          clusterMaxZoom: 14, // Max zoom to cluster points on
+          clusterRadius: 50, // Radius of each cluster when clustering points
+        })
+      } catch (error) {
+        console.error('Error adding source:', error)
+        return
+      }
     } else {
-      map.getSource(sourceId).setData(geojson)
+      try {
+        const source = map.getSource(sourceId)
+        if (source && typeof source.setData === 'function') {
+          source.setData(geojson)
+        }
+      } catch (error) {
+        console.error('Error updating source data:', error)
+        return
+      }
     }
 
     // Add cluster circles
-    if (!map.getLayer(clusterLayerId)) {
-      map.addLayer({
+    if (!hasLayer(clusterLayerId)) {
+      try {
+        map.addLayer({
         id: clusterLayerId,
         type: 'circle',
         source: sourceId,
@@ -91,11 +134,16 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           'circle-opacity': 0.8
         }
       })
+      } catch (error) {
+        console.error('Error adding cluster layer:', error)
+        return
+      }
     }
 
     // Add cluster count labels
-    if (!map.getLayer(clusterCountLayerId)) {
-      map.addLayer({
+    if (!hasLayer(clusterCountLayerId)) {
+      try {
+        map.addLayer({
         id: clusterCountLayerId,
         type: 'symbol',
         source: sourceId,
@@ -109,11 +157,16 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           'text-color': '#fff'
         }
       })
+      } catch (error) {
+        console.error('Error adding cluster count layer:', error)
+        return
+      }
     }
 
     // Add unclustered points with colors by agency
-    if (!map.getLayer(unclusteredLayerId)) {
-      map.addLayer({
+    if (!hasLayer(unclusteredLayerId)) {
+      try {
+        map.addLayer({
         id: unclusteredLayerId,
         type: 'circle',
         source: sourceId,
@@ -126,16 +179,20 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           'circle-opacity': 0.8
         }
       })
+      } catch (error) {
+        console.error('Error adding unclustered layer:', error)
+        return
+      }
     }
 
     // Spiderfy functionality - spread out markers when cluster is clicked
     const spiderfyCluster = (clusterId, center, pointCount) => {
       // Clean up any existing spiderfy first
       try {
-        if (map.getLayer('spiderfy-lines')) map.removeLayer('spiderfy-lines')
-        if (map.getLayer('spiderfy-layer')) map.removeLayer('spiderfy-layer')
-        if (map.getSource('spiderfy-source')) map.removeSource('spiderfy-source')
-        if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+        if (hasLayer('spiderfy-lines')) map.removeLayer('spiderfy-lines')
+        if (hasLayer('spiderfy-layer')) map.removeLayer('spiderfy-layer')
+        if (hasSource('spiderfy-source')) map.removeSource('spiderfy-source')
+        if (hasSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
       } catch {
         // Ignore errors if layers don't exist
       }
@@ -195,9 +252,9 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
         const spiderfyLineLayerId = 'spiderfy-lines'
 
         // Remove existing spiderfy if present
-        if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
-        if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
-        if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
+        if (hasLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
+        if (hasLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
+        if (hasSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
 
         // Add spiderfy source
         map.addSource(spiderfySourceId, {
@@ -273,10 +330,10 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
             
             // Clean up spiderfy after click
             try {
-              if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
-              if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
-              if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
-              if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+              if (hasLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
+              if (hasLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
+              if (hasSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
+              if (hasSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
               map.off('click', spiderfyLayerId, handleSpiderfyClick)
               map.off('mouseenter', spiderfyLayerId)
               map.off('mouseleave', spiderfyLayerId)
@@ -301,10 +358,10 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           if (cleanupTimeout) clearTimeout(cleanupTimeout)
           cleanupTimeout = setTimeout(() => {
             try {
-              if (map.getLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
-              if (map.getLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
-              if (map.getSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
-              if (map.getSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
+              if (hasLayer(spiderfyLineLayerId)) map.removeLayer(spiderfyLineLayerId)
+              if (hasLayer(spiderfyLayerId)) map.removeLayer(spiderfyLayerId)
+              if (hasSource(spiderfySourceId)) map.removeSource(spiderfySourceId)
+              if (hasSource('spiderfy-lines-source')) map.removeSource('spiderfy-lines-source')
               map.off('click', spiderfyLayerId, handleSpiderfyClick)
               map.off('mouseenter', spiderfyLayerId)
               map.off('mouseleave', spiderfyLayerId)
@@ -380,17 +437,23 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
 
     // Cleanup
     return () => {
-      map.off('click', clusterLayerId, handleClusterClick)
-      map.off('click', unclusteredLayerId, handleMarkerClick)
-      map.off('mouseenter', clusterLayerId)
-      map.off('mouseleave', clusterLayerId)
-      map.off('mouseenter', unclusteredLayerId)
-      map.off('mouseleave', unclusteredLayerId)
+      if (!map || !mapLoaded) return
       
-      if (map.getLayer(clusterLayerId)) map.removeLayer(clusterLayerId)
-      if (map.getLayer(clusterCountLayerId)) map.removeLayer(clusterCountLayerId)
-      if (map.getLayer(unclusteredLayerId)) map.removeLayer(unclusteredLayerId)
-      if (map.getSource(sourceId)) map.removeSource(sourceId)
+      try {
+        map.off('click', clusterLayerId, handleClusterClick)
+        map.off('click', unclusteredLayerId, handleMarkerClick)
+        map.off('mouseenter', clusterLayerId)
+        map.off('mouseleave', clusterLayerId)
+        map.off('mouseenter', unclusteredLayerId)
+        map.off('mouseleave', unclusteredLayerId)
+        
+        if (hasLayer(clusterLayerId)) map.removeLayer(clusterLayerId)
+        if (hasLayer(clusterCountLayerId)) map.removeLayer(clusterCountLayerId)
+        if (hasLayer(unclusteredLayerId)) map.removeLayer(unclusteredLayerId)
+        if (hasSource(sourceId)) map.removeSource(sourceId)
+      } catch (error) {
+        console.warn('Error during cleanup:', error)
+      }
     }
   }, [map, mapLoaded, parks, onMarkerClick])
 
