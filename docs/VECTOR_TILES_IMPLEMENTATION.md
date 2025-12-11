@@ -46,72 +46,166 @@ SELECT PostGIS_version();
 
 ---
 
-## Step 2: Add Geometry Column to Parks Table
+## Step 2: Set Up Point Geometry for Vector Tiles
 
 ### 2.1 Check current schema
 
 ```sql
--- Check if geometry column exists
-SELECT column_name, data_type 
+-- Check existing geometry column (likely for boundaries)
+SELECT column_name, data_type, udt_name
 FROM information_schema.columns 
-WHERE table_name = 'parks' AND column_name = 'geom';
+WHERE table_name = 'parks' 
+  AND (column_name LIKE '%geom%' OR column_name LIKE '%boundary%' OR udt_name = 'geometry');
+
+-- Check geometry column type
+SELECT 
+  column_name,
+  data_type,
+  (SELECT type FROM geometry_columns WHERE f_table_name = 'parks' AND f_geometry_column = column_name) as geometry_type
+FROM information_schema.columns 
+WHERE table_name = 'parks' AND udt_name = 'geometry';
 ```
 
-### 2.2 Add geometry column (if missing)
+### 2.2 Understanding Your Current Setup
+
+You likely have:
+- **Boundary geometry column**: Stores polygons/multipolygons for park boundaries
+- **Latitude/Longitude columns**: Point coordinates for markers
+
+**For vector tiles, we need point geometry for markers.** We have two options:
+
+#### Option A: Add Separate Point Geometry Column (Recommended)
+- Keep boundary geometry for boundary display
+- Add point geometry for vector tile markers
+- More efficient for queries
+
+#### Option B: Use Centroid of Boundary Geometry
+- Use existing boundary geometry
+- Calculate centroid on-the-fly for markers
+- Simpler but slightly slower
+
+### 2.3 Option A: Add Point Geometry Column
 
 ```sql
--- Add geometry column (SRID 4326 = WGS84 lat/lng)
+-- Add point geometry column for markers (separate from boundary)
 ALTER TABLE parks 
-ADD COLUMN IF NOT EXISTS geom geometry(Point, 4326);
+ADD COLUMN IF NOT EXISTS geom_point geometry(Point, 4326);
 
 -- Create spatial index for performance
-CREATE INDEX IF NOT EXISTS idx_parks_geom ON parks USING GIST (geom);
+CREATE INDEX IF NOT EXISTS idx_parks_geom_point ON parks USING GIST (geom_point);
 ```
 
-### 2.3 Populate geometry from existing lat/lng
+### 2.4 Populate Point Geometry
 
 ```sql
--- Populate geometry column from latitude/longitude
+-- Strategy 1: Use existing lat/lng if available
 UPDATE parks 
-SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+SET geom_point = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
 WHERE latitude IS NOT NULL 
   AND longitude IS NOT NULL 
-  AND geom IS NULL;
+  AND geom_point IS NULL;
+
+-- Strategy 2: Calculate centroid from boundary geometry if lat/lng missing
+-- First, identify your boundary column name (common names: geom, boundary, geometry)
+-- Replace 'boundary' with your actual column name below
+
+UPDATE parks 
+SET geom_point = ST_Centroid(boundary)  -- Replace 'boundary' with your column name
+WHERE geom_point IS NULL 
+  AND boundary IS NOT NULL  -- Replace 'boundary' with your column name
+  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+
+-- Strategy 3: Fallback - use boundary centroid even if lat/lng exists (if boundary is more accurate)
+-- Uncomment if you prefer boundary centroids:
+-- UPDATE parks 
+-- SET geom_point = ST_Centroid(boundary)  -- Replace 'boundary' with your column name
+-- WHERE boundary IS NOT NULL 
+--   AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');
 
 -- Verify
-SELECT COUNT(*) FROM parks WHERE geom IS NOT NULL;
+SELECT 
+  COUNT(*) as total_parks,
+  COUNT(geom_point) as parks_with_point_geom,
+  COUNT(boundary) as parks_with_boundary  -- Replace 'boundary' with your column name
+FROM parks;
 ```
 
-### 2.4 Keep geometry updated (optional trigger)
+### 2.5 Option B: Use Boundary Centroid Directly (Alternative)
+
+If you prefer not to add a new column, you can calculate centroids in the vector tile function:
 
 ```sql
--- Create trigger to update geometry when lat/lng changes
-CREATE OR REPLACE FUNCTION update_park_geometry()
+-- Skip adding geom_point column
+-- We'll use ST_Centroid(boundary) in the tile function instead
+-- See Step 3 for modified function
+```
+
+### 2.6 Keep Point Geometry Updated (Optional Trigger)
+
+```sql
+-- Create trigger to update point geometry when lat/lng changes
+CREATE OR REPLACE FUNCTION update_park_point_geometry()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- Priority 1: Use lat/lng if available
   IF NEW.latitude IS NOT NULL AND NEW.longitude IS NOT NULL THEN
-    NEW.geom = ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326);
+    NEW.geom_point = ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326);
+  -- Priority 2: Use boundary centroid if lat/lng missing
+  ELSIF NEW.boundary IS NOT NULL THEN  -- Replace 'boundary' with your column name
+    NEW.geom_point = ST_Centroid(NEW.boundary);
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER parks_geometry_update
-BEFORE INSERT OR UPDATE OF latitude, longitude ON parks
+CREATE TRIGGER parks_point_geometry_update
+BEFORE INSERT OR UPDATE OF latitude, longitude, boundary ON parks  -- Add your boundary column name
 FOR EACH ROW
-EXECUTE FUNCTION update_park_geometry();
+EXECUTE FUNCTION update_park_point_geometry();
 ```
+
+### 2.7 Identify Your Boundary Column Name
+
+Before proceeding, identify your boundary geometry column name:
+
+```sql
+-- Find geometry columns in parks table
+SELECT 
+  f_geometry_column as column_name,
+  type as geometry_type,
+  coord_dimension,
+  srid
+FROM geometry_columns 
+WHERE f_table_name = 'parks';
+
+-- Common names: 'boundary', 'geom', 'geometry', 'shape'
+```
+
+**Note**: Replace `'boundary'` in all SQL examples with your actual column name.
 
 ---
 
 ## Step 3: Create Vector Tile Function
 
-### 3.1 Create the tile generation function
+### 3.1 Determine Your Geometry Setup
+
+Based on Step 2, you'll use one of these approaches:
+
+**If you added `geom_point` column (Option A - Recommended):**
+- Use `geom_point` for markers
+- Keep boundary geometry separate for boundary display
+
+**If using boundary centroids (Option B):**
+- Calculate `ST_Centroid(boundary)` in the function
+- Slightly slower but no schema changes needed
+
+### 3.2 Create the tile generation function (Option A - Using geom_point)
 
 Run this SQL in Supabase SQL Editor:
 
 ```sql
 -- Function to generate vector tiles for parks
+-- Uses geom_point column for marker points
 CREATE OR REPLACE FUNCTION parks_tiles(z int, x int, y int)
 RETURNS bytea AS $$
 DECLARE
@@ -124,7 +218,7 @@ BEGIN
   -- Transform to WGS84 (EPSG:4326) for query
   tile_bbox = ST_Transform(tile_bbox, 4326);
   
-  -- Generate vector tile
+  -- Generate vector tile using point geometry
   SELECT ST_AsMVT(q, 'parks', 4096, 'geom') INTO result
   FROM (
     SELECT
@@ -134,17 +228,153 @@ BEGIN
       state,
       source_id,
       data_source,
-      -- Transform geometry to Web Mercator and create MVT geometry
+      -- Transform point geometry to Web Mercator and create MVT geometry
       ST_AsMVTGeom(
-        ST_Transform(geom, 3857),
+        ST_Transform(geom_point, 3857),
         ST_TileEnvelope(z, x, y),
         4096,  -- tile extent
         256,   -- buffer (pixels)
         true   -- clip geometry
       ) AS geom
     FROM parks
-    WHERE geom IS NOT NULL
-      AND ST_Intersects(geom, tile_bbox)
+    WHERE geom_point IS NOT NULL
+      AND ST_Intersects(geom_point, tile_bbox)
+  ) q;
+  
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql STABLE;
+```
+
+### 3.3 Alternative: Using Boundary Centroids (Option B)
+
+If you didn't add `geom_point` and want to use boundary centroids:
+
+```sql
+-- Function using boundary centroid for markers
+-- Replace 'boundary' with your actual boundary column name
+CREATE OR REPLACE FUNCTION parks_tiles(z int, x int, y int)
+RETURNS bytea AS $$
+DECLARE
+  tile_bbox geometry;
+  result bytea;
+BEGIN
+  tile_bbox = ST_TileEnvelope(z, x, y);
+  tile_bbox = ST_Transform(tile_bbox, 4326);
+  
+  SELECT ST_AsMVT(q, 'parks', 4096, 'geom') INTO result
+  FROM (
+    SELECT
+      id,
+      name,
+      agency,
+      state,
+      source_id,
+      data_source,
+      -- Calculate centroid from boundary and create MVT geometry
+      ST_AsMVTGeom(
+        ST_Transform(
+          CASE 
+            -- Use lat/lng if available (more accurate)
+            WHEN latitude IS NOT NULL AND longitude IS NOT NULL 
+            THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+            -- Otherwise use boundary centroid
+            WHEN boundary IS NOT NULL  -- Replace 'boundary' with your column name
+            THEN ST_Centroid(boundary)  -- Replace 'boundary'
+            ELSE NULL
+          END,
+          3857
+        ),
+        ST_TileEnvelope(z, x, y),
+        4096,
+        256,
+        true
+      ) AS geom
+    FROM parks
+    WHERE (
+      (latitude IS NOT NULL AND longitude IS NOT NULL)
+      OR boundary IS NOT NULL  -- Replace 'boundary'
+    )
+    AND ST_Intersects(
+      CASE 
+        WHEN latitude IS NOT NULL AND longitude IS NOT NULL 
+        THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+        WHEN boundary IS NOT NULL  -- Replace 'boundary'
+        THEN ST_Centroid(boundary)  -- Replace 'boundary'
+        ELSE NULL
+      END,
+      tile_bbox
+    )
+  ) q;
+  
+  RETURN result;
+END;
+$$ LANGUAGE plpgsql STABLE;
+```
+
+### 3.4 Hybrid Approach (Best of Both)
+
+Use lat/lng when available, fallback to boundary centroid:
+
+```sql
+-- Function that prefers lat/lng, uses boundary centroid as fallback
+-- Replace 'boundary' with your actual boundary column name
+CREATE OR REPLACE FUNCTION parks_tiles(z int, x int, y int)
+RETURNS bytea AS $$
+DECLARE
+  tile_bbox geometry;
+  result bytea;
+BEGIN
+  tile_bbox = ST_TileEnvelope(z, x, y);
+  tile_bbox = ST_Transform(tile_bbox, 4326);
+  
+  SELECT ST_AsMVT(q, 'parks', 4096, 'geom') INTO result
+  FROM (
+    SELECT
+      id,
+      name,
+      agency,
+      state,
+      source_id,
+      data_source,
+      ST_AsMVTGeom(
+        ST_Transform(
+          COALESCE(
+            -- Priority 1: Use geom_point if it exists
+            (SELECT geom_point FROM parks p2 WHERE p2.id = parks.id),
+            -- Priority 2: Use lat/lng
+            CASE 
+              WHEN latitude IS NOT NULL AND longitude IS NOT NULL 
+              THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+              ELSE NULL
+            END,
+            -- Priority 3: Use boundary centroid
+            ST_Centroid(boundary)  -- Replace 'boundary' with your column name
+          ),
+          3857
+        ),
+        ST_TileEnvelope(z, x, y),
+        4096,
+        256,
+        true
+      ) AS geom
+    FROM parks
+    WHERE (
+      geom_point IS NOT NULL
+      OR (latitude IS NOT NULL AND longitude IS NOT NULL)
+      OR boundary IS NOT NULL  -- Replace 'boundary'
+    )
+    AND ST_Intersects(
+      COALESCE(
+        geom_point,
+        CASE 
+          WHEN latitude IS NOT NULL AND longitude IS NOT NULL 
+          THEN ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+          ELSE ST_Centroid(boundary)  -- Replace 'boundary'
+        END
+      ),
+      tile_bbox
+    )
   ) q;
   
   RETURN result;
