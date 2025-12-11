@@ -151,7 +151,7 @@ export async function GET(request, { params }) {
           if (parkData.geometry.trim().startsWith('{') || parkData.geometry.trim().startsWith('[')) {
             try {
               parkData.geometry = JSON.parse(parkData.geometry)
-            } catch (parseError) {
+            } catch {
               console.warn(`Geometry string is not valid JSON for park ${id}, might be WKT or PostGIS format`)
               // Don't try to parse WKT here - just leave it as string
               // The client-side code will handle it
