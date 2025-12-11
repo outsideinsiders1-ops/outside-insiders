@@ -84,10 +84,10 @@ export async function GET(request) {
     }
 
     // Build query - select only essential fields for map markers
-    // Include parks with coordinates OR boundaries (we'll calculate centroid from boundary if needed)
+    // Include parks with coordinates OR geometry (we'll calculate centroid from geometry if needed)
     let query = supabaseServer
       .from('parks')
-      .select('id, name, latitude, longitude, agency, state, source_id, data_source, boundary')
+      .select('id, name, latitude, longitude, agency, state, source_id, data_source, geometry')
     
     // Filter: must have either coordinates OR boundary
     // Note: We'll filter out parks without coordinates after calculating centroids from boundaries
@@ -123,13 +123,13 @@ export async function GET(request) {
 
     let parks = data || []
 
-    // Calculate centroids from boundaries for parks missing coordinates
+    // Calculate centroids from geometry for parks missing coordinates
     parks = parks.map(park => {
       if (!park.latitude || !park.longitude) {
-        // Try to calculate centroid from boundary
-        if (park.boundary) {
+        // Try to calculate centroid from geometry
+        if (park.geometry) {
           try {
-            let boundaryData = park.boundary
+            let boundaryData = park.geometry
             if (typeof boundaryData === 'string') {
               boundaryData = JSON.parse(boundaryData)
             }

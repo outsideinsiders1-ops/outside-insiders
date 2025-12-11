@@ -1,0 +1,16 @@
+{
+  "/api/admin/data-quality/update/route": "app/api/admin/data-quality/update/route.js",
+  "/api/scrape-disabled/route": "app/api/scrape-disabled/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/parks/[id]/route": "app/api/parks/[id]/route.js",
+  "/api/inngest/route": "app/api/inngest/route.js",
+  "/api/admin/data-quality/route": "app/api/admin/data-quality/route.js",
+  "/api/sync/recreation-gov-enrich/route": "app/api/sync/recreation-gov-enrich/route.js",
+  "/api/tiles/parks/[...params]/route": "app/api/tiles/parks/[...params]/route.js",
+  "/api/parks/route": "app/api/parks/route.js",
+  "/api/admin/geocode/route": "app/api/admin/geocode/route.js",
+  "/api/sync/route": "app/api/sync/route.js",
+  "/api/upload/route": "app/api/upload/route.js",
+  "/page": "app/page.js",
+  "/admin/page": "app/admin/page.js"
+}

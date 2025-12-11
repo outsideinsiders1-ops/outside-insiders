@@ -111,12 +111,12 @@ export async function fetchParkById(id) {
 }
 
 /**
- * Fetch park boundary
+ * Fetch park boundary (from geometry column)
  */
 export async function fetchParkBoundary(parkId) {
   const { data, error } = await supabase
     .from('parks')
-    .select('boundary')
+    .select('geometry')
     .eq('id', parkId)
     .single()
 
@@ -125,25 +125,25 @@ export async function fetchParkBoundary(parkId) {
     return null
   }
 
-  if (!data || !data.boundary) {
+  if (!data || !data.geometry) {
     return null
   }
 
-  // Parse boundary data
+  // Parse geometry data
   try {
     let coordinates = null
     
-    if (typeof data.boundary === 'string') {
-      const parsed = JSON.parse(data.boundary)
+    if (typeof data.geometry === 'string') {
+      const parsed = JSON.parse(data.geometry)
       if (parsed.type === 'Polygon') {
         coordinates = parsed.coordinates[0]
       } else if (parsed.type === 'MultiPolygon') {
         coordinates = parsed.coordinates[0][0]
       }
-    } else if (data.boundary.type === 'Polygon') {
-      coordinates = data.boundary.coordinates[0]
-    } else if (data.boundary.type === 'MultiPolygon') {
-      coordinates = data.boundary.coordinates[0][0]
+    } else if (data.geometry.type === 'Polygon') {
+      coordinates = data.geometry.coordinates[0]
+    } else if (data.geometry.type === 'MultiPolygon') {
+      coordinates = data.geometry.coordinates[0][0]
     }
 
     // Convert to Leaflet format [lat, lng]

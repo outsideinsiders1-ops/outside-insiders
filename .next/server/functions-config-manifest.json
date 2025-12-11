@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/admin/data-quality": {},
+    "/api/parks/[id]": {
+      "maxDuration": 30
+    },
+    "/api/sync/recreation-gov-enrich": {
+      "maxDuration": 60
+    },
+    "/api/admin/geocode": {
+      "maxDuration": 300
+    },
+    "/api/parks": {
+      "maxDuration": 30
+    },
+    "/api/tiles/parks/[...params]": {
+      "maxDuration": 10
+    },
+    "/api/sync": {
+      "maxDuration": 300
+    },
+    "/api/upload": {
+      "maxDuration": 300
+    }
+  }
+}
