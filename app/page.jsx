@@ -16,7 +16,7 @@ import ParkDetail from '../src/components/Parks/ParkDetail'
 // Dynamically import map components to avoid SSR issues with Mapbox GL
 const MapView = dynamic(() => import('../src/components/Map/MapView'), { ssr: false })
 const ParkBoundary = dynamic(() => import('../src/components/Map/ParkBoundary'), { ssr: false })
-const MarkerClusterGroup = dynamic(() => import('../src/components/Map/MarkerClusterGroupVectorTiles'), { ssr: false })
+const MarkerClusterGroup = dynamic(() => import('../src/components/Map/MarkerClusterGroup'), { ssr: false })
 
 export default function HomePage() {
   const [viewportBounds, setViewportBounds] = useState(null)
@@ -170,6 +170,7 @@ export default function HomePage() {
             onBoundsChange={handleBoundsChange}
           >
             <MarkerClusterGroup
+              parks={parks}
               onMarkerClick={handleParkClick}
             />
             
