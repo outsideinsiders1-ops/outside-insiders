@@ -46,7 +46,38 @@ SELECT PostGIS_version();
 
 ---
 
-## Step 2: Set Up Point Geometry for Vector Tiles
+## Step 2: Data Cleanup - Ensure All Parks Have Lat/Lng
+
+**⚠️ IMPORTANT: Before setting up vector tiles, ensure all parks have latitude/longitude values.**
+
+This cleanup ensures:
+- Every park can be displayed on the map
+- Simpler queries (no geometry calculations needed)
+- Better performance (indexed lat/lng columns)
+- Boundaries remain separate for detail view
+
+**See `docs/DATA_CLEANUP_LAT_LNG.md` for complete cleanup instructions.**
+
+Quick cleanup:
+```sql
+-- Update parks missing coordinates (replace 'boundary' with your column name)
+UPDATE parks
+SET 
+  latitude = ST_Y(ST_Centroid(boundary)),  -- Replace 'boundary'
+  longitude = ST_X(ST_Centroid(boundary))  -- Replace 'boundary'
+WHERE 
+  (latitude IS NULL OR longitude IS NULL)
+  AND boundary IS NOT NULL  -- Replace 'boundary'
+  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+```
+
+After cleanup, proceed to Step 3 (vector tiles function will be simpler).
+
+---
+
+## Step 2 (Alternative): Set Up Point Geometry for Vector Tiles
+
+**Note**: If you prefer to keep lat/lng and boundary separate, you can add a `geom_point` column instead. However, the cleanup approach above is recommended for simplicity.
 
 ### 2.1 Check current schema
 
@@ -187,38 +218,23 @@ WHERE f_table_name = 'parks';
 
 ## Step 3: Create Vector Tile Function
 
-### 3.1 Determine Your Geometry Setup
+### 3.1 Recommended: Simple Function (After Data Cleanup)
 
-Based on Step 2, you'll use one of these approaches:
+**If you completed the data cleanup (Step 2), use this simple function:**
 
-**If you added `geom_point` column (Option A - Recommended):**
-- Use `geom_point` for markers
-- Keep boundary geometry separate for boundary display
-
-**If using boundary centroids (Option B):**
-- Calculate `ST_Centroid(boundary)` in the function
-- Slightly slower but no schema changes needed
-
-### 3.2 Create the tile generation function (Option A - Using geom_point)
-
-Run this SQL in Supabase SQL Editor:
+All parks now have lat/lng, so the function is straightforward:
 
 ```sql
--- Function to generate vector tiles for parks
--- Uses geom_point column for marker points
+-- Simple function - all parks have lat/lng after cleanup
 CREATE OR REPLACE FUNCTION parks_tiles(z int, x int, y int)
 RETURNS bytea AS $$
 DECLARE
   tile_bbox geometry;
   result bytea;
 BEGIN
-  -- Calculate tile bounding box in Web Mercator (EPSG:3857)
   tile_bbox = ST_TileEnvelope(z, x, y);
-  
-  -- Transform to WGS84 (EPSG:4326) for query
   tile_bbox = ST_Transform(tile_bbox, 4326);
   
-  -- Generate vector tile using point geometry
   SELECT ST_AsMVT(q, 'parks', 4096, 'geom') INTO result
   FROM (
     SELECT
@@ -228,23 +244,34 @@ BEGIN
       state,
       source_id,
       data_source,
-      -- Transform point geometry to Web Mercator and create MVT geometry
+      -- Create point from lat/lng (all parks have these now)
       ST_AsMVTGeom(
-        ST_Transform(geom_point, 3857),
+        ST_Transform(
+          ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+          3857
+        ),
         ST_TileEnvelope(z, x, y),
-        4096,  -- tile extent
-        256,   -- buffer (pixels)
-        true   -- clip geometry
+        4096,
+        256,
+        true
       ) AS geom
     FROM parks
-    WHERE geom_point IS NOT NULL
-      AND ST_Intersects(geom_point, tile_bbox)
+    WHERE latitude IS NOT NULL 
+      AND longitude IS NOT NULL
+      AND ST_Intersects(
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+        tile_bbox
+      )
   ) q;
   
   RETURN result;
 END;
 $$ LANGUAGE plpgsql STABLE;
 ```
+
+### 3.2 Alternative: Using geom_point Column
+
+**If you prefer to add a separate `geom_point` column instead of using lat/lng:**
 
 ### 3.3 Alternative: Using Boundary Centroids (Option B)
 
