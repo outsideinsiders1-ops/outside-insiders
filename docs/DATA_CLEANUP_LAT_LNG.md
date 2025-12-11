@@ -71,6 +71,38 @@ FROM parks;
 
 ### 3.1 Update Parks Missing Coordinates
 
+**First, check if your column is `geometry` or `geography` type:**
+
+```sql
+-- Check column type
+SELECT 
+  column_name,
+  udt_name,
+  data_type
+FROM information_schema.columns 
+WHERE table_name = 'parks' 
+  AND (udt_name = 'geometry' OR udt_name = 'geography');
+```
+
+**If it's `geography`, use this version (cast to geometry first):**
+
+```sql
+-- Update parks that are missing lat/lng but have boundary geometry
+-- Replace 'boundary' with your actual boundary column name
+-- This version handles both geometry and geography types
+
+UPDATE parks
+SET 
+  latitude = ST_Y(ST_Centroid(boundary::geometry)),  -- Replace 'boundary', cast to geometry
+  longitude = ST_X(ST_Centroid(boundary::geometry))  -- Replace 'boundary', cast to geometry
+WHERE 
+  (latitude IS NULL OR longitude IS NULL)
+  AND boundary IS NOT NULL  -- Replace 'boundary'
+  AND ST_GeometryType(boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary', cast to geometry
+```
+
+**If it's `geometry` type, use this version (no cast needed):**
+
 ```sql
 -- Update parks that are missing lat/lng but have boundary geometry
 -- Replace 'boundary' with your actual boundary column name
@@ -83,6 +115,7 @@ WHERE
   (latitude IS NULL OR longitude IS NULL)
   AND boundary IS NOT NULL  -- Replace 'boundary'
   AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+```
 
 -- Verify the update
 SELECT 
@@ -119,57 +152,37 @@ WHERE latitude IS NOT NULL OR longitude IS NOT NULL
 HAVING coordinate_status != 'Valid';
 
 -- Fix invalid coordinates (if any)
+-- Use ::geometry cast if your column is geography type
 UPDATE parks
 SET 
-  latitude = ST_Y(ST_Centroid(boundary)),  -- Replace 'boundary'
-  longitude = ST_X(ST_Centroid(boundary))  -- Replace 'boundary'
+  latitude = ST_Y(ST_Centroid(boundary::geometry)),  -- Replace 'boundary', add ::geometry if geography
+  longitude = ST_X(ST_Centroid(boundary::geometry))  -- Replace 'boundary', add ::geometry if geography
 WHERE 
   (latitude < -90 OR latitude > 90 OR longitude < -180 OR longitude > 180)
   AND boundary IS NOT NULL  -- Replace 'boundary'
-  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+  AND ST_GeometryType(boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary', add ::geometry if geography
 ```
 
 ### 3.3 Handle MultiPolygon Boundaries
 
-If your boundaries are MultiPolygon, use the largest polygon:
-
-```sql
--- For MultiPolygon, use centroid of largest polygon
-UPDATE parks
-SET 
-  latitude = ST_Y(
-    ST_Centroid(
-      (ST_Dump(boundary)).geom  -- Replace 'boundary'
-      ORDER BY ST_Area((ST_Dump(boundary)).geom) DESC  -- Replace 'boundary'
-      LIMIT 1
-    )
-  ),
-  longitude = ST_X(
-    ST_Centroid(
-      (ST_Dump(boundary)).geom  -- Replace 'boundary'
-      ORDER BY ST_Area((ST_Dump(boundary)).geom) DESC  -- Replace 'boundary'
-      LIMIT 1
-    )
-  )
-WHERE 
-  (latitude IS NULL OR longitude IS NULL)
-  AND boundary IS NOT NULL  -- Replace 'boundary'
-  AND ST_GeometryType(boundary) = 'ST_MultiPolygon';  -- Replace 'boundary'
-```
-
-**Simpler approach** (works for both Polygon and MultiPolygon):
+**Simpler approach** (works for both Polygon and MultiPolygon, handles geography type):
 
 ```sql
 -- Works for both Polygon and MultiPolygon
+-- Handles both geometry and geography types (casts to geometry)
+-- Replace 'boundary' with your actual column name
+
 UPDATE parks
 SET 
-  latitude = ST_Y(ST_Centroid(boundary)),  -- Replace 'boundary'
-  longitude = ST_X(ST_Centroid(boundary))  -- Replace 'boundary'
+  latitude = ST_Y(ST_Centroid(boundary::geometry)),  -- Replace 'boundary', cast to geometry
+  longitude = ST_X(ST_Centroid(boundary::geometry))  -- Replace 'boundary', cast to geometry
 WHERE 
   (latitude IS NULL OR longitude IS NULL)
   AND boundary IS NOT NULL  -- Replace 'boundary'
-  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+  AND ST_GeometryType(boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary', cast to geometry
 ```
+
+**Note**: The `::geometry` cast converts geography to geometry, which is needed for `ST_Centroid` and `ST_GeometryType` functions. This works for both geometry and geography columns.
 
 ---
 
@@ -179,15 +192,17 @@ Ensure new parks automatically get coordinates from boundaries:
 
 ```sql
 -- Function to set lat/lng from boundary if missing
+-- Handles both geometry and geography types
 CREATE OR REPLACE FUNCTION ensure_park_coordinates()
 RETURNS TRIGGER AS $$
 BEGIN
   -- If lat/lng missing but boundary exists, calculate from boundary
+  -- Cast to geometry to handle both geometry and geography types
   IF (NEW.latitude IS NULL OR NEW.longitude IS NULL) 
-     AND NEW.boundary IS NOT NULL  -- Replace 'boundary'
-     AND ST_GeometryType(NEW.boundary) IN ('ST_Polygon', 'ST_MultiPolygon') THEN  -- Replace 'boundary'
-    NEW.latitude := ST_Y(ST_Centroid(NEW.boundary));  -- Replace 'boundary'
-    NEW.longitude := ST_X(ST_Centroid(NEW.boundary));  -- Replace 'boundary'
+     AND NEW.boundary IS NOT NULL  -- Replace 'boundary' with your column name
+     AND ST_GeometryType(NEW.boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon') THEN  -- Replace 'boundary', cast to geometry
+    NEW.latitude := ST_Y(ST_Centroid(NEW.boundary::geometry));  -- Replace 'boundary', cast to geometry
+    NEW.longitude := ST_X(ST_Centroid(NEW.boundary::geometry));  -- Replace 'boundary', cast to geometry
   END IF;
   
   -- Validate coordinates
@@ -331,17 +346,17 @@ FROM parks
 WHERE 
   (latitude IS NULL OR longitude IS NULL)
   AND boundary IS NOT NULL  -- Replace 'boundary'
-  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+  AND ST_GeometryType(boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary', cast to geometry
 
 -- If count > 0, run the update:
 UPDATE parks
 SET 
-  latitude = ST_Y(ST_Centroid(boundary)),  -- Replace 'boundary'
-  longitude = ST_X(ST_Centroid(boundary))  -- Replace 'boundary'
+  latitude = ST_Y(ST_Centroid(boundary::geometry)),  -- Replace 'boundary', cast to geometry
+  longitude = ST_X(ST_Centroid(boundary::geometry))  -- Replace 'boundary', cast to geometry
 WHERE 
   (latitude IS NULL OR longitude IS NULL)
   AND boundary IS NOT NULL  -- Replace 'boundary'
-  AND ST_GeometryType(boundary) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary'
+  AND ST_GeometryType(boundary::geometry) IN ('ST_Polygon', 'ST_MultiPolygon');  -- Replace 'boundary', cast to geometry
 ```
 
 ---
