@@ -40,10 +40,11 @@ function AdminPanel() {
   // API Sync state
   const [syncSourceType, setSyncSourceType] = useState('NPS');
   const [syncApiKey, setSyncApiKey] = useState('');
+  const [syncApiUrl, setSyncApiUrl] = useState(''); // URL for URL-based APIs (no key required)
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [syncError, setSyncError] = useState(null);
-  const [savedApiConfigs, setSavedApiConfigs] = useState([]); // Array of { sourceType, apiKey, lastUsed }
+  const [savedApiConfigs, setSavedApiConfigs] = useState([]); // Array of { sourceType, apiKey, apiUrl, lastUsed }
   
   // Recreation.gov Enrichment state
   const [enrichLoading, setEnrichLoading] = useState(false);
@@ -714,6 +715,7 @@ function AdminPanel() {
         body: JSON.stringify({
           sourceType: syncSourceType,
           apiKey: syncApiKey.trim() || undefined,
+          apiUrl: syncApiUrl.trim() || undefined
         }),
       });
 
@@ -1493,24 +1495,47 @@ function AdminPanel() {
               </select>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="sync-api-key">2️⃣ API Key (required for NPS and Recreation.gov):</label>
-              <input
-                id="sync-api-key"
-                name="syncApiKey"
-                type="password"
-                value={syncApiKey}
-                onChange={(e) => setSyncApiKey(e.target.value)}
-                placeholder="Enter your API key"
-                disabled={syncLoading}
-                style={{ width: '100%', padding: '8px', marginTop: '5px' }}
-              />
-              <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
-                <strong>For NPS:</strong> Get your API key from <a href="https://www.nps.gov/subjects/developer/get-started.htm" target="_blank" rel="noopener noreferrer">developer.nps.gov</a>
-                <br />
-                <strong>For Recreation.gov:</strong> Get your API key from <a href="https://ridb.recreation.gov/" target="_blank" rel="noopener noreferrer">ridb.recreation.gov</a>
-              </p>
-            </div>
+            {/* Show API Key input for NPS and Recreation.gov */}
+            {(syncSourceType === 'NPS' || syncSourceType === 'Recreation.gov') && (
+              <div className="form-group">
+                <label htmlFor="sync-api-key">2️⃣ API Key (required):</label>
+                <input
+                  id="sync-api-key"
+                  name="syncApiKey"
+                  type="password"
+                  value={syncApiKey}
+                  onChange={(e) => setSyncApiKey(e.target.value)}
+                  placeholder="Enter your API key"
+                  disabled={syncLoading}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                />
+                <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                  <strong>For NPS:</strong> Get your API key from <a href="https://www.nps.gov/subjects/developer/get-started.htm" target="_blank" rel="noopener noreferrer">developer.nps.gov</a>
+                  <br />
+                  <strong>For Recreation.gov:</strong> Get your API key from <a href="https://ridb.recreation.gov/" target="_blank" rel="noopener noreferrer">ridb.recreation.gov</a>
+                </p>
+              </div>
+            )}
+
+            {/* Show API URL input for URL-based sources */}
+            {['State Agency', 'Federal Agency', 'County Agency', 'City Agency'].includes(syncSourceType) && (
+              <div className="form-group">
+                <label htmlFor="sync-api-url">2️⃣ API URL (no key required):</label>
+                <input
+                  id="sync-api-url"
+                  name="syncApiUrl"
+                  type="url"
+                  value={syncApiUrl}
+                  onChange={(e) => setSyncApiUrl(e.target.value)}
+                  placeholder="https://example.com/api/parks"
+                  disabled={syncLoading}
+                  style={{ width: '100%', padding: '8px', marginTop: '5px' }}
+                />
+                <p style={{ marginTop: '5px', fontSize: '0.9rem', color: '#666' }}>
+                  Enter the full URL to the API endpoint (e.g., GeoJSON or JSON API)
+                </p>
+              </div>
+            )}
 
             <div className="form-group">
               <button

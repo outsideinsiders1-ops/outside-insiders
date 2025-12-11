@@ -33,9 +33,9 @@ export async function POST(request) {
     console.log('🔵 Request method:', request.method)
     
     const body = await request.json().catch(() => ({}))
-    console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey, augmentMode: body.augmentMode })
+    console.log('Request body:', { sourceType: body.sourceType, hasApiKey: !!body.apiKey, hasApiUrl: !!body.apiUrl, augmentMode: body.augmentMode })
     
-    const { sourceType, apiKey, augmentMode } = body
+    const { sourceType, apiKey, apiUrl, augmentMode } = body
 
     // Validate required fields
     if (!sourceType) {
@@ -49,7 +49,7 @@ export async function POST(request) {
       }, { status: 400, headers })
     }
 
-    // Get API key from request or environment
+    // Get API key from request or environment (only for NPS and Recreation.gov)
     let effectiveApiKey = apiKey
     if (sourceType === 'NPS' && !effectiveApiKey) {
       effectiveApiKey = process.env.NPS_API_KEY || process.env.NEXT_PUBLIC_NPS_API_KEY
@@ -58,12 +58,24 @@ export async function POST(request) {
       effectiveApiKey = process.env.RECREATION_GOV_API_KEY || process.env.NEXT_PUBLIC_RECREATION_GOV_API_KEY
     }
 
-    if (!effectiveApiKey) {
+    // For NPS and Recreation.gov, API key is required
+    if ((sourceType === 'NPS' || sourceType === 'Recreation.gov') && !effectiveApiKey) {
       return Response.json({ 
         success: false, 
         error: 'API key is required',
         details: `Please provide an API key for ${sourceType}. You can provide it in the request body or set it as an environment variable.`,
         example: { sourceType: 'NPS', apiKey: 'your-api-key' }
+      }, { status: 400, headers })
+    }
+
+    // For URL-based sources, API URL is required
+    const urlBasedSources = ['State Agency', 'Federal Agency', 'County Agency', 'City Agency']
+    if (urlBasedSources.includes(sourceType) && !apiUrl) {
+      return Response.json({ 
+        success: false, 
+        error: 'API URL is required',
+        details: `Please provide an API URL for ${sourceType}.`,
+        example: { sourceType: 'State Agency', apiUrl: 'https://example.com/api/parks' }
       }, { status: 400, headers })
     }
 
@@ -552,13 +564,164 @@ export async function POST(request) {
         }, { status: 500, headers })
       }
     }
-    // Handle custom API URLs (future: LLM-powered analysis)
+    // Handle URL-based APIs (State Agency, Federal Agency, etc.)
+    else if (['State Agency', 'Federal Agency', 'County Agency', 'City Agency'].includes(sourceType)) {
+      try {
+        console.log(`=== ${sourceType} API SYNC START ===`)
+        console.log('API URL:', apiUrl)
+        
+        if (!apiUrl) {
+          return Response.json({
+            success: false,
+            error: 'API URL is required',
+            details: `Please provide an API URL for ${sourceType}`
+          }, { status: 400, headers })
+        }
+
+        // Fetch data from URL
+        const response = await fetch(apiUrl)
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}: ${response.statusText}`)
+        }
+
+        const apiData = await response.json()
+        console.log(`Fetched ${Array.isArray(apiData) ? apiData.length : apiData.features?.length || 0} items from API`)
+
+        // Handle GeoJSON FeatureCollection format
+        let features = []
+        if (apiData.type === 'FeatureCollection' && apiData.features) {
+          features = apiData.features
+        } else if (Array.isArray(apiData)) {
+          // Assume array of features or park objects
+          features = apiData
+        } else if (apiData.type === 'Feature') {
+          // Single feature
+          features = [apiData]
+        } else {
+          throw new Error('Unsupported API response format. Expected GeoJSON FeatureCollection or array of features.')
+        }
+
+        parksFound = features.length
+        console.log(`Found ${parksFound} parks/features to process`)
+
+        if (parksFound === 0) {
+          return Response.json({
+            success: false,
+            error: 'No parks found',
+            message: 'The API returned no data. Please check the URL and try again.'
+          }, { status: 400, headers })
+        }
+
+        // Map features to park schema
+        const mappedParks = features.map((feature, index) => {
+          try {
+            // Handle GeoJSON Feature format
+            if (feature.type === 'Feature' && feature.geometry) {
+              const props = feature.properties || {}
+              const coords = feature.geometry.coordinates
+              
+              // Extract coordinates from Point geometry
+              let lat = null
+              let lng = null
+              if (feature.geometry.type === 'Point' && Array.isArray(coords) && coords.length >= 2) {
+                lng = coords[0]
+                lat = coords[1]
+              }
+
+              return {
+                name: props.name || props.NAME || props.ParkName || `Park ${index + 1}`,
+                description: props.description || props.DESCRIPTION || props.desc || null,
+                state: props.state || props.STATE || props.state_code || 'N/A',
+                agency: sourceType === 'State Agency' ? 'State' : 
+                       sourceType === 'Federal Agency' ? 'Federal' :
+                       sourceType === 'County Agency' ? 'COUNTY' : 'CITY',
+                latitude: lat || props.latitude || props.LATITUDE || props.lat || null,
+                longitude: lng || props.longitude || props.LONGITUDE || props.lng || props.lon || null,
+                website: props.website || props.WEBSITE || props.url || props.URL || null,
+                phone: props.phone || props.PHONE || props.phoneNumber || null,
+                email: props.email || props.EMAIL || null,
+                address: props.address || props.ADDRESS || null,
+                city: props.city || props.CITY || null,
+                county: props.county || props.COUNTY || null,
+                activities: props.activities || props.ACTIVITIES || null,
+                amenities: props.amenities || props.AMENITIES || null,
+                source_id: props.id || props.ID || props.source_id || null,
+                data_source: sourceType,
+                // Store full geometry if available
+                geometry: feature.geometry
+              }
+            } else {
+              // Handle plain object format (assume it's already a park object)
+              return {
+                name: feature.name || `Park ${index + 1}`,
+                state: feature.state || 'N/A',
+                agency: sourceType === 'State Agency' ? 'State' : 
+                       sourceType === 'Federal Agency' ? 'Federal' :
+                       sourceType === 'County Agency' ? 'COUNTY' : 'CITY',
+                latitude: feature.latitude || feature.lat || null,
+                longitude: feature.longitude || feature.lng || feature.lon || null,
+                ...feature,
+                data_source: sourceType
+              }
+            }
+          } catch (mapError) {
+            console.error(`Error mapping feature ${index}:`, mapError)
+            return null
+          }
+        }).filter(park => park && park.name)
+
+        console.log(`Mapped ${mappedParks.length} parks to schema`)
+
+        // Process parks
+        for (const park of mappedParks) {
+          try {
+            if (!park.name) {
+              parksSkipped++
+              continue
+            }
+
+            // Set state to "N/A" if missing
+            if (!park.state || park.state.trim() === '') {
+              park.state = 'N/A'
+            }
+
+            const result = await insertOrUpdatePark(park, sourceType)
+            if (result.action === 'inserted') {
+              parksAdded++
+            } else if (result.action === 'updated') {
+              parksUpdated++
+            } else {
+              parksSkipped++
+            }
+          } catch (error) {
+            parksSkipped++
+            errors.push({
+              park: park.name || 'Unknown',
+              error: error.message
+            })
+          }
+        }
+
+        console.log(`=== ${sourceType} API SYNC COMPLETE ===`)
+        console.log(`Processed: ${mappedParks.length}, Added: ${parksAdded}, Updated: ${parksUpdated}, Skipped: ${parksSkipped}`)
+
+      } catch (error) {
+        console.error(`${sourceType} API Error:`, error)
+        return Response.json({
+          success: false,
+          error: `Failed to sync ${sourceType} data`,
+          message: error.message || 'An error occurred while fetching data',
+          details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        }, { status: 500, headers })
+      }
+    }
+    // Handle unsupported source types
     else {
       return Response.json({
         success: false,
         error: 'Unsupported source type',
-        details: `Source type "${sourceType}" is not yet supported. Currently supported: "NPS", "Recreation.gov"`,
-        supportedTypes: ['NPS', 'National Park Service', 'Recreation.gov', 'Recreation.gov API']
+        details: `Source type "${sourceType}" is not yet supported. Currently supported: "NPS", "Recreation.gov", "State Agency", "Federal Agency", "County Agency", "City Agency"`,
+        supportedTypes: ['NPS', 'National Park Service', 'Recreation.gov', 'Recreation.gov API', 'State Agency', 'Federal Agency', 'County Agency', 'City Agency']
       }, { status: 400, headers })
     }
 

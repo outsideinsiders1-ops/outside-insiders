@@ -49,22 +49,50 @@ export async function GET(request, { params }) {
       }, { status: 404, headers })
     }
 
+    // Convert PostGIS geometry to GeoJSON if it exists
+    let parkData = { ...data }
+    if (parkData.geometry) {
+      try {
+        // If geometry is already a string (GeoJSON), parse it
+        if (typeof parkData.geometry === 'string') {
+          try {
+            parkData.geometry = JSON.parse(parkData.geometry)
+          } catch {
+            // If parsing fails, it might be WKT format - convert using PostGIS
+            // For now, we'll query it as GeoJSON from database
+            const { data: geoData } = await supabaseServer.rpc('st_asgeojson', {
+              geom: parkData.geometry
+            }).catch(() => ({ data: null }))
+            if (geoData) {
+              parkData.geometry = JSON.parse(geoData)
+            }
+          }
+        }
+        // If geometry is a PostGIS geometry object, we need to convert it
+        // The simplest approach: query it as GeoJSON directly
+      } catch (geoError) {
+        console.warn(`Failed to convert geometry for park ${id}:`, geoError.message)
+        // Keep geometry as-is if conversion fails
+      }
+    }
+
     // Log what fields we're returning for debugging
     console.log(`Park ${id} detail fetched:`, {
-      id: data.id,
-      name: data.name,
-      hasDescription: !!data.description,
-      hasPhone: !!data.phone,
-      hasEmail: !!data.email,
-      hasAmenities: !!data.amenities,
-      hasActivities: !!data.activities,
-      hasGeometry: !!data.geometry,
-      totalFields: Object.keys(data).length
+      id: parkData.id,
+      name: parkData.name,
+      hasDescription: !!parkData.description,
+      hasPhone: !!parkData.phone,
+      hasEmail: !!parkData.email,
+      hasAmenities: !!parkData.amenities,
+      hasActivities: !!parkData.activities,
+      hasGeometry: !!parkData.geometry,
+      geometryType: parkData.geometry ? (typeof parkData.geometry === 'string' ? 'string' : typeof parkData.geometry) : 'none',
+      totalFields: Object.keys(parkData).length
     })
 
     return Response.json({
       success: true,
-      park: data
+      park: parkData
     }, { status: 200, headers })
 
   } catch (error) {

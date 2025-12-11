@@ -129,21 +129,29 @@ export async function fetchParkBoundary(parkId) {
     return null
   }
 
-  // Parse geometry data
+  // Parse geometry data (handle both GeoJSON and PostGIS geometry formats)
   try {
     let coordinates = null
+    let geometryData = data.geometry
     
-    if (typeof data.geometry === 'string') {
-      const parsed = JSON.parse(data.geometry)
-      if (parsed.type === 'Polygon') {
-        coordinates = parsed.coordinates[0]
-      } else if (parsed.type === 'MultiPolygon') {
-        coordinates = parsed.coordinates[0][0]
+    // If geometry is a string, try to parse it
+    if (typeof geometryData === 'string') {
+      try {
+        geometryData = JSON.parse(geometryData)
+      } catch (parseError) {
+        // If JSON parse fails, it might be WKT or other format
+        console.warn('Geometry is string but not valid JSON:', parseError.message)
+        return null
       }
-    } else if (data.geometry.type === 'Polygon') {
-      coordinates = data.geometry.coordinates[0]
-    } else if (data.geometry.type === 'MultiPolygon') {
-      coordinates = data.geometry.coordinates[0][0]
+    }
+    
+    // Handle GeoJSON format
+    if (geometryData && typeof geometryData === 'object') {
+      if (geometryData.type === 'Polygon' && geometryData.coordinates) {
+        coordinates = geometryData.coordinates[0]
+      } else if (geometryData.type === 'MultiPolygon' && geometryData.coordinates) {
+        coordinates = geometryData.coordinates[0][0]
+      }
     }
 
     // Convert to Leaflet format [lat, lng]
