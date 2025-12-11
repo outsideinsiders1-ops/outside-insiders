@@ -61,38 +61,47 @@ export default function HomePage() {
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(config.map.detailZoom)
     
-    // Always fetch full park details from server (including all fields, geometry, etc.)
-    try {
-      console.log('Fetching full park details for:', park.id, park.name)
-      const response = await fetch(`/api/parks/${park.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success && data.park) {
-          console.log('Full park data received:', {
-            id: data.park.id,
-            name: data.park.name,
-            hasDescription: !!data.park.description,
-            hasPhone: !!data.park.phone,
-            hasEmail: !!data.park.email,
-            hasAmenities: !!data.park.amenities,
-            hasActivities: !!data.park.activities,
-            hasGeometry: !!data.park.geometry,
-            fields: Object.keys(data.park)
-          })
-          // Update with full park details - this has ALL fields
-          setSelectedPark(data.park)
-        } else {
-          console.warn('Park detail API returned no data:', data)
+      // Always fetch full park details from server (including all fields, geometry, etc.)
+      try {
+        console.log('Fetching full park details for:', park.id, park.name)
+        const parkId = park.id || park.uuid || park.source_id
+        if (!parkId) {
+          console.error('No valid park ID found:', park)
+          return
         }
-      } else {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('Failed to fetch full park details:', response.status, errorData.message || response.statusText)
-        // Keep basic park info if fetch fails
+        
+        const response = await fetch(`/api/parks/${encodeURIComponent(parkId)}`)
+        console.log('Park detail response status:', response.status, 'URL:', response.url)
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.park) {
+            console.log('Full park data received:', {
+              id: data.park.id,
+              name: data.park.name,
+              hasDescription: !!data.park.description,
+              hasPhone: !!data.park.phone,
+              hasEmail: !!data.park.email,
+              hasAmenities: !!data.park.amenities,
+              hasActivities: !!data.park.activities,
+              hasGeometry: !!data.park.geometry,
+              fields: Object.keys(data.park)
+            })
+            // Update with full park details - this has ALL fields
+            setSelectedPark(data.park)
+          } else {
+            console.warn('Park detail API returned no data:', data)
+            // Keep basic park info if detail fetch fails
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({}))
+          console.error('Failed to fetch full park details:', response.status, errorData.message || response.statusText, 'Park ID:', parkId)
+          // Keep basic park info if fetch fails - at least show what we have
+        }
+      } catch (error) {
+        console.error('Error fetching park details:', error, 'Park:', park)
+        // Continue with basic park info if fetch fails
       }
-    } catch (error) {
-      console.error('Error fetching park details:', error)
-      // Continue with basic park info if fetch fails
-    }
     // Boundary will auto-load and display via ParkDetail component
   }, [])
 

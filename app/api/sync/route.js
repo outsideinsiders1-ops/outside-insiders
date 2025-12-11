@@ -578,10 +578,31 @@ export async function POST(request) {
           }, { status: 400, headers })
         }
 
+        // Detect and convert ArcGIS FeatureServer URLs to query endpoint
+        let fetchUrl = apiUrl
+        if (apiUrl.includes('/FeatureServer') && !apiUrl.includes('/query')) {
+          // Extract base URL and layer ID (default to layer 0)
+          const baseUrl = apiUrl.replace(/\/FeatureServer\/?\d*$/, '/FeatureServer')
+          const layerId = apiUrl.match(/\/FeatureServer\/(\d+)/)?.[1] || '0'
+          // Build query URL for GeoJSON format
+          fetchUrl = `${baseUrl}/${layerId}/query?where=1=1&outFields=*&f=geojson&outSR=4326&returnGeometry=true`
+          console.log(`Converted ArcGIS FeatureServer URL to query endpoint: ${fetchUrl}`)
+        }
+
         // Fetch data from URL
-        const response = await fetch(apiUrl)
+        const response = await fetch(fetchUrl)
         if (!response.ok) {
           throw new Error(`API returned ${response.status}: ${response.statusText}`)
+        }
+
+        // Check if response is JSON (ArcGIS might return HTML for errors)
+        const contentType = response.headers.get('content-type') || ''
+        if (!contentType.includes('application/json') && !contentType.includes('application/geo+json')) {
+          const text = await response.text()
+          if (text.trim().startsWith('<')) {
+            throw new Error(`API returned HTML instead of JSON. The URL might need to be a query endpoint. For ArcGIS FeatureServer, use: ${apiUrl}/0/query?where=1=1&outFields=*&f=geojson`)
+          }
+          throw new Error(`API returned unexpected content type: ${contentType}`)
         }
 
         const apiData = await response.json()

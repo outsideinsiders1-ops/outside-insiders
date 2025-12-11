@@ -17,12 +17,22 @@ export async function GET(request, { params }) {
   }
 
   try {
-    const { id } = params
-
+    // Handle both Next.js 13+ params format and legacy format
+    let id = params?.id
     if (!id) {
+      // Try to extract from URL path
+      const url = new URL(request.url)
+      const pathParts = url.pathname.split('/')
+      id = pathParts[pathParts.length - 1]
+    }
+
+    console.log('Park detail request - ID:', id, 'Params:', params)
+
+    if (!id || id === '[id]' || id === 'undefined') {
       return Response.json({
         success: false,
-        error: 'Park ID is required'
+        error: 'Park ID is required',
+        received: { id, params }
       }, { status: 400, headers })
     }
 
