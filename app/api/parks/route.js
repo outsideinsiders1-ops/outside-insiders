@@ -84,11 +84,14 @@ export async function GET(request) {
     }
 
     // Build query - select only essential fields for map markers
+    // Include parks with coordinates OR boundaries (we'll calculate centroid from boundary if needed)
     let query = supabaseServer
       .from('parks')
-      .select('id, name, latitude, longitude, agency, state, source_id, data_source')
-      .not('latitude', 'is', null)
-      .not('longitude', 'is', null)
+      .select('id, name, latitude, longitude, agency, state, source_id, data_source, boundary')
+    
+    // Filter: must have either coordinates OR boundary
+    // Note: We'll filter out parks without coordinates after calculating centroids from boundaries
+    // For now, we'll get all parks and filter client-side after centroid calculation
 
     // Apply viewport bounds if provided
     if (bounds && bounds.north && bounds.south && bounds.east && bounds.west) {
@@ -118,7 +121,56 @@ export async function GET(request) {
       }, { status: 500, headers })
     }
 
-    const parks = data || []
+    let parks = data || []
+
+    // Calculate centroids from boundaries for parks missing coordinates
+    parks = parks.map(park => {
+      if (!park.latitude || !park.longitude) {
+        // Try to calculate centroid from boundary
+        if (park.boundary) {
+          try {
+            let boundaryData = park.boundary
+            if (typeof boundaryData === 'string') {
+              boundaryData = JSON.parse(boundaryData)
+            }
+            
+            // Handle GeoJSON Polygon or MultiPolygon
+            let coordinates = null
+            if (boundaryData.type === 'Polygon' && boundaryData.coordinates && boundaryData.coordinates[0]) {
+              coordinates = boundaryData.coordinates[0]
+            } else if (boundaryData.type === 'MultiPolygon' && boundaryData.coordinates && boundaryData.coordinates[0] && boundaryData.coordinates[0][0]) {
+              coordinates = boundaryData.coordinates[0][0]
+            }
+            
+            if (coordinates && coordinates.length > 0) {
+              // Calculate centroid (average of all coordinates)
+              let sumLat = 0
+              let sumLng = 0
+              let count = 0
+              
+              coordinates.forEach(coord => {
+                // GeoJSON format: [lng, lat]
+                if (Array.isArray(coord) && coord.length >= 2) {
+                  sumLng += coord[0]
+                  sumLat += coord[1]
+                  count++
+                }
+              })
+              
+              if (count > 0) {
+                park.latitude = sumLat / count
+                park.longitude = sumLng / count
+              }
+            }
+          } catch (error) {
+            console.warn(`Failed to calculate centroid for park ${park.id}:`, error.message)
+          }
+        }
+      }
+      
+      // Only include parks that now have coordinates
+      return park
+    }).filter(park => park.latitude && park.longitude)
 
     // Apply client-side filters that can't be done in SQL
     let filteredParks = parks

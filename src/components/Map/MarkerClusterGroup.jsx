@@ -2,11 +2,14 @@
 // src/components/Map/MarkerClusterGroup.jsx
 // Mapbox GL JS clustering implementation
 
-import React, { useEffect } from 'react'
-import { normalizeAgency } from '../../utils/helpers'
+import React, { useEffect, useRef } from 'react'
+import mapboxgl from 'mapbox-gl'
+import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
 
 const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
+  // Track popup instance
+  const popupRef = React.useRef(null)
   const sourceId = 'parks-cluster-source'
   const clusterLayerId = 'parks-clusters'
   const clusterCountLayerId = 'parks-cluster-count'
@@ -83,7 +86,7 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
           type: 'geojson',
           data: geojson,
           cluster: true,
-          clusterMaxZoom: 14, // Max zoom to cluster points on
+          clusterMaxZoom: 12, // Max zoom to cluster points on (reduced from 14 to prevent flickering at zoom 9-10)
           clusterRadius: 50, // Radius of each cluster when clustering points
         })
       } catch (error) {
@@ -322,20 +325,72 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
             layers: [spiderfyLayerId]
           })
           
-          if (features.length > 0 && onMarkerClick) {
+          if (features.length > 0) {
             const props = features[0].properties
+            const coordinates = features[0].geometry.coordinates
             // Reconstruct full park object
             const park = {
               id: props.id,
               name: props.name,
               agency: props.agency,
               state: props.state,
-              latitude: props.latitude || features[0].geometry.coordinates[1],
-              longitude: props.longitude || features[0].geometry.coordinates[0],
+              latitude: props.latitude || coordinates[1],
+              longitude: props.longitude || coordinates[0],
               distance: props.distance,
               ...props
             }
-            onMarkerClick(park)
+            
+            // Show popup first
+            if (popupRef.current) {
+              popupRef.current.remove()
+            }
+            
+            const popup = new mapboxgl.Popup({ 
+              offset: 25, 
+              closeOnClick: false,
+              closeButton: true
+            })
+              .setLngLat(coordinates)
+              .setHTML(`
+                <div class="popup-content" style="min-width: 200px;">
+                  <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${park.name || 'Unnamed Park'}</h3>
+                  ${park.distance ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Distance:</strong> ${park.distance.toFixed(1)} miles</p>` : ''}
+                  <p style="margin: 4px 0; font-size: 14px;"><strong>State:</strong> ${park.state || 'N/A'}</p>
+                  <p style="margin: 4px 0; font-size: 14px;"><strong>Type:</strong> ${getAgencyFullName(park.agency)}</p>
+                  <button 
+                    class="detail-button" 
+                    data-park-id="${park.id}"
+                    style="
+                      margin-top: 8px;
+                      padding: 8px 16px;
+                      background-color: #007bff;
+                      color: white;
+                      border: none;
+                      border-radius: 4px;
+                      cursor: pointer;
+                      font-size: 14px;
+                      width: 100%;
+                    "
+                  >View Details</button>
+                </div>
+              `)
+              .addTo(map)
+            
+            popupRef.current = popup
+            
+            // Handle "View Details" button click
+            popup.getElement().addEventListener('click', (e) => {
+              if (e.target.classList.contains('detail-button') || e.target.closest('.detail-button')) {
+                e.stopPropagation()
+                if (popupRef.current) {
+                  popupRef.current.remove()
+                  popupRef.current = null
+                }
+                if (onMarkerClick) {
+                  onMarkerClick(park)
+                }
+              }
+            })
             
             // Clean up spiderfy after click
             try {
@@ -402,28 +457,84 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       spiderfyCluster(clusterId, center, pointCount)
     }
 
-    // Handle clicks on individual markers
+    // Handle clicks on individual markers - show popup first, then detail panel on "View Details"
     const handleMarkerClick = (e) => {
       const features = map.queryRenderedFeatures(e.point, {
         layers: [unclusteredLayerId]
       })
       
-      if (features.length > 0 && onMarkerClick) {
+      if (features.length > 0) {
         const props = features[0].properties
+        const coordinates = features[0].geometry.coordinates
         // Reconstruct full park object from properties
-        // Properties include all park data via spread operator
         const park = {
           id: props.id,
           name: props.name,
           agency: props.agency,
           state: props.state,
-          latitude: props.latitude || features[0].geometry.coordinates[1],
-          longitude: props.longitude || features[0].geometry.coordinates[0],
+          latitude: props.latitude || coordinates[1],
+          longitude: props.longitude || coordinates[0],
           distance: props.distance,
           // Include any other park properties
           ...props
         }
-        onMarkerClick(park)
+        
+        // Close any existing popup
+        if (popupRef.current) {
+          popupRef.current.remove()
+        }
+        
+        // Create and show popup with "View Details" button
+        const popup = new mapboxgl.Popup({ 
+          offset: 25, 
+          closeOnClick: false,
+          closeButton: true
+        })
+          .setLngLat(coordinates)
+          .setHTML(`
+            <div class="popup-content" style="min-width: 200px;">
+              <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${park.name || 'Unnamed Park'}</h3>
+              ${park.distance ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Distance:</strong> ${park.distance.toFixed(1)} miles</p>` : ''}
+              <p style="margin: 4px 0; font-size: 14px;"><strong>State:</strong> ${park.state || 'N/A'}</p>
+              <p style="margin: 4px 0; font-size: 14px;"><strong>Type:</strong> ${getAgencyFullName(park.agency)}</p>
+              <button 
+                class="detail-button" 
+                data-park-id="${park.id}"
+                style="
+                  margin-top: 8px;
+                  padding: 8px 16px;
+                  background-color: #007bff;
+                  color: white;
+                  border: none;
+                  border-radius: 4px;
+                  cursor: pointer;
+                  font-size: 14px;
+                  width: 100%;
+                "
+                onmouseover="this.style.backgroundColor='#0056b3'"
+                onmouseout="this.style.backgroundColor='#007bff'"
+              >View Details</button>
+            </div>
+          `)
+          .addTo(map)
+        
+        popupRef.current = popup
+        
+        // Handle "View Details" button click
+        popup.getElement().addEventListener('click', (e) => {
+          if (e.target.classList.contains('detail-button') || e.target.closest('.detail-button')) {
+            e.stopPropagation()
+            // Close popup
+            if (popupRef.current) {
+              popupRef.current.remove()
+              popupRef.current = null
+            }
+            // Open detail panel
+            if (onMarkerClick) {
+              onMarkerClick(park)
+            }
+          }
+        })
       }
     }
 
@@ -465,6 +576,16 @@ const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
       }
     }
   }, [map, mapLoaded, parks, onMarkerClick])
+  
+  // Cleanup popup on unmount
+  useEffect(() => {
+    return () => {
+      if (popupRef.current) {
+        popupRef.current.remove()
+        popupRef.current = null
+      }
+    }
+  }, [])
 
   return null
 }
