@@ -4,10 +4,10 @@
 
 import React, { useEffect, useRef } from 'react'
 import mapboxgl from 'mapbox-gl'
-import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
+import { getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
 
-const MarkerClusterGroupVectorTiles = ({ onMarkerClick, map, mapLoaded, ...props }) => {
+const MarkerClusterGroupVectorTiles = ({ onMarkerClick, map, mapLoaded }) => {
   const popupRef = useRef(null)
   const sourceId = 'parks-tiles-source'
   const clusterLayerId = 'parks-clusters'
