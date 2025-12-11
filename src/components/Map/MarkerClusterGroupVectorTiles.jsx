@@ -7,7 +7,7 @@ import mapboxgl from 'mapbox-gl'
 import { normalizeAgency, getAgencyFullName } from '../../utils/helpers'
 import { config } from '../../config/settings'
 
-const MarkerClusterGroupVectorTiles = ({ onMarkerClick, map, mapLoaded }) => {
+const MarkerClusterGroupVectorTiles = ({ onMarkerClick, map, mapLoaded, ...props }) => {
   const popupRef = useRef(null)
   const sourceId = 'parks-tiles-source'
   const clusterLayerId = 'parks-clusters'
