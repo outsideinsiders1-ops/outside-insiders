@@ -45,26 +45,64 @@ export async function GET(request, { params }) {
     }
 
     // Fetch full park details including all fields and geometry
-    const { data, error } = await supabaseServer
+    // Try multiple ID fields since parks might use different identifiers
+    let { data, error } = await supabaseServer
       .from('parks')
       .select('*')
       .eq('id', id)
       .single()
 
+    // If not found by id, try source_id as fallback
+    if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
+      console.log(`Park not found by id ${id}, trying source_id...`)
+      const { data: sourceData, error: sourceError } = await supabaseServer
+        .from('parks')
+        .select('*')
+        .eq('source_id', id)
+        .single()
+      
+      if (!sourceError && sourceData) {
+        console.log(`Found park by source_id: ${id}`)
+        data = sourceData
+        error = null
+      } else {
+        // Try one more check - query without .single() to see if park exists at all
+        const { data: checkData, error: checkError } = await supabaseServer
+          .from('parks')
+          .select('id, name, source_id')
+          .or(`id.eq.${id},source_id.eq.${id}`)
+          .limit(1)
+        
+        if (!checkError && checkData && checkData.length > 0) {
+          // Park exists but with different ID - fetch full data using the actual id
+          console.log(`Found park with different ID, using actual id: ${checkData[0].id}`)
+          const { data: foundPark, error: foundError } = await supabaseServer
+            .from('parks')
+            .select('*')
+            .eq('id', checkData[0].id)
+            .single()
+          
+          if (!foundError && foundPark) {
+            data = foundPark
+            error = null
+          }
+        }
+      }
+    }
+
     if (error) {
       console.error('Error fetching park:', error, 'ID:', id, 'Error code:', error.code)
       
-      // Check if it's a "not found" error
+      // Final check - query without .single() to see if park exists
       if (error.code === 'PGRST116' || error.message?.includes('No rows') || error.message?.includes('not found')) {
-        // Double-check by querying without .single()
         const { data: checkData, error: checkError } = await supabaseServer
           .from('parks')
-          .select('id, name')
-          .eq('id', id)
+          .select('id, name, source_id')
+          .or(`id.eq.${id},source_id.eq.${id}`)
           .limit(1)
         
         if (checkError || !checkData || checkData.length === 0) {
-          console.log(`Park ${id} confirmed not found in database`)
+          console.log(`Park ${id} confirmed not found in database (checked both id and source_id)`)
           return Response.json({
             success: false,
             error: 'Park not found',
