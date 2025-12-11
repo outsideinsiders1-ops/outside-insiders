@@ -58,10 +58,13 @@ BEGIN
       state,
       source_id,
       data_source,
-      -- Create point from lat/lng and transform to Web Mercator
+      -- Use geom_point if it exists, otherwise create from lat/lng
       ST_AsMVTGeom(
         ST_Transform(
-          ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
+          COALESCE(
+            geom_point,
+            ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+          ),
           3857
         ),
         ST_TileEnvelope(z, x, y),
@@ -70,12 +73,17 @@ BEGIN
         true   -- clip geometry
       ) AS geom
     FROM parks
-    WHERE latitude IS NOT NULL 
-      AND longitude IS NOT NULL
-      AND ST_Intersects(
-        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326),
-        tile_bbox
-      )
+    WHERE (
+      geom_point IS NOT NULL 
+      OR (latitude IS NOT NULL AND longitude IS NOT NULL)
+    )
+    AND ST_Intersects(
+      COALESCE(
+        geom_point,
+        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+      ),
+      tile_bbox
+    )
   ) q;
   
   RETURN result;
