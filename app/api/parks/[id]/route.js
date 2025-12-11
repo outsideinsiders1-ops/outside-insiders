@@ -26,7 +26,7 @@ export async function GET(request, { params }) {
       }, { status: 400, headers })
     }
 
-    // Fetch full park details including all fields and boundary
+    // Fetch full park details including all fields and geometry
     const { data, error } = await supabaseServer
       .from('parks')
       .select('*')
@@ -48,6 +48,19 @@ export async function GET(request, { params }) {
         error: 'Park not found'
       }, { status: 404, headers })
     }
+
+    // Log what fields we're returning for debugging
+    console.log(`Park ${id} detail fetched:`, {
+      id: data.id,
+      name: data.name,
+      hasDescription: !!data.description,
+      hasPhone: !!data.phone,
+      hasEmail: !!data.email,
+      hasAmenities: !!data.amenities,
+      hasActivities: !!data.activities,
+      hasGeometry: !!data.geometry,
+      totalFields: Object.keys(data).length
+    })
 
     return Response.json({
       success: true,

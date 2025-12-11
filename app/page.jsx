@@ -63,18 +63,30 @@ export default function HomePage() {
     
     // Always fetch full park details from server (including all fields, geometry, etc.)
     try {
+      console.log('Fetching full park details for:', park.id, park.name)
       const response = await fetch(`/api/parks/${park.id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.park) {
+          console.log('Full park data received:', {
+            id: data.park.id,
+            name: data.park.name,
+            hasDescription: !!data.park.description,
+            hasPhone: !!data.park.phone,
+            hasEmail: !!data.park.email,
+            hasAmenities: !!data.park.amenities,
+            hasActivities: !!data.park.activities,
+            hasGeometry: !!data.park.geometry,
+            fields: Object.keys(data.park)
+          })
           // Update with full park details - this has ALL fields
           setSelectedPark(data.park)
         } else {
-          console.warn('Park detail API returned no data')
+          console.warn('Park detail API returned no data:', data)
         }
       } else {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Failed to fetch full park details:', errorData.message || response.statusText)
+        console.error('Failed to fetch full park details:', response.status, errorData.message || response.statusText)
         // Keep basic park info if fetch fails
       }
     } catch (error) {
