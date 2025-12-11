@@ -61,17 +61,21 @@ export default function HomePage() {
     setMapCenter([park.latitude, park.longitude])
     setMapZoom(config.map.detailZoom)
     
-    // Fetch full park details from server (including boundary, description, etc.)
+    // Always fetch full park details from server (including all fields, geometry, etc.)
     try {
       const response = await fetch(`/api/parks/${park.id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.park) {
-          // Update with full park details
+          // Update with full park details - this has ALL fields
           setSelectedPark(data.park)
+        } else {
+          console.warn('Park detail API returned no data')
         }
       } else {
-        console.warn('Failed to fetch full park details, using basic info')
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to fetch full park details:', errorData.message || response.statusText)
+        // Keep basic park info if fetch fails
       }
     } catch (error) {
       console.error('Error fetching park details:', error)
