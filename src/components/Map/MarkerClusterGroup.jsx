@@ -9,7 +9,7 @@ import { config } from '../../config/settings'
 
 const MarkerClusterGroup = ({ parks, onMarkerClick, map, mapLoaded }) => {
   // Track popup instance
-  const popupRef = React.useRef(null)
+  const popupRef = useRef(null)
   const sourceId = 'parks-cluster-source'
   const clusterLayerId = 'parks-clusters'
   const clusterCountLayerId = 'parks-cluster-count'

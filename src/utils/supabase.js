@@ -7,8 +7,10 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Create and export the client
-export const supabase = createClient(supabaseUrl, supabaseKey)
+// Create and export the client (with safety check for build time)
+export const supabase = supabaseUrl && supabaseKey 
+  ? createClient(supabaseUrl, supabaseKey)
+  : null
 
 /**
  * Fetch parks by viewport bounds (for map performance)

@@ -1,12 +1,15 @@
 {
+  "/_not-found/page": "/_not-found",
   "/api/admin/data-quality/update/route": "/api/admin/data-quality/update",
   "/api/scrape-disabled/route": "/api/scrape-disabled",
-  "/_not-found/page": "/_not-found",
   "/api/inngest/route": "/api/inngest",
-  "/api/admin/data-quality/route": "/api/admin/data-quality",
+  "/api/parks/route": "/api/parks",
+  "/api/parks/[id]/route": "/api/parks/[id]",
+  "/api/sync/recreation-gov-enrich/route": "/api/sync/recreation-gov-enrich",
   "/api/admin/geocode/route": "/api/admin/geocode",
+  "/api/admin/data-quality/route": "/api/admin/data-quality",
   "/api/upload/route": "/api/upload",
   "/api/sync/route": "/api/sync",
-  "/page": "/",
-  "/admin/page": "/admin"
+  "/admin/page": "/admin",
+  "/page": "/"
 }
