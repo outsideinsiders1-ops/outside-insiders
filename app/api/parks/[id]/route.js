@@ -44,6 +44,16 @@ export async function GET(request, { params }) {
       }, { status: 400, headers })
     }
 
+    // First, let's check if ANY park exists with this ID in any field
+    console.log(`Checking for park with ID: ${id}`)
+    const { data: idCheck } = await supabaseServer
+      .from('parks')
+      .select('id, name, source_id')
+      .or(`id.eq.${id},source_id.eq.${id}`)
+      .limit(5)
+    
+    console.log(`Found ${idCheck?.length || 0} parks matching ID ${id}:`, idCheck)
+
     // Fetch full park details including all fields and geometry
     // Try multiple ID fields since parks might use different identifiers
     let { data, error } = await supabaseServer
@@ -51,6 +61,8 @@ export async function GET(request, { params }) {
       .select('*')
       .eq('id', id)
       .single()
+    
+    console.log(`Query by id result - Error:`, error?.code, error?.message, 'Data:', !!data)
 
     // If not found by id, try source_id as fallback
     if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
@@ -61,28 +73,28 @@ export async function GET(request, { params }) {
         .eq('source_id', id)
         .single()
       
+      console.log(`Query by source_id result - Error:`, sourceError?.code, sourceError?.message, 'Data:', !!sourceData)
+      
       if (!sourceError && sourceData) {
-        console.log(`Found park by source_id: ${id}`)
+        console.log(`Found park by source_id: ${id}, park name: ${sourceData.name}`)
         data = sourceData
         error = null
       } else {
-        // Try one more check - query without .single() to see if park exists at all
-        const { data: checkData, error: checkError } = await supabaseServer
-          .from('parks')
-          .select('id, name, source_id')
-          .or(`id.eq.${id},source_id.eq.${id}`)
-          .limit(1)
-        
-        if (!checkError && checkData && checkData.length > 0) {
-          // Park exists but with different ID - fetch full data using the actual id
-          console.log(`Found park with different ID, using actual id: ${checkData[0].id}`)
+        // Use the idCheck we did earlier to find the actual ID
+        if (idCheck && idCheck.length > 0) {
+          const actualId = idCheck[0].id
+          console.log(`Park exists but with different id. Requested: ${id}, Actual: ${actualId}, trying with actual id...`)
+          
           const { data: foundPark, error: foundError } = await supabaseServer
             .from('parks')
             .select('*')
-            .eq('id', checkData[0].id)
+            .eq('id', actualId)
             .single()
           
+          console.log(`Query by actual id result - Error:`, foundError?.code, foundError?.message, 'Data:', !!foundPark)
+          
           if (!foundError && foundPark) {
+            console.log(`Found park using actual id: ${actualId}, park name: ${foundPark.name}`)
             data = foundPark
             error = null
           }
