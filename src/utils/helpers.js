@@ -40,6 +40,11 @@ export function normalizeAgency(agency) {
   if (agency === 'USFS') return 'USFS'
   if (agency === 'BLM') return 'BLM'
   if (agency === 'FWS') return 'FWS'
+  if (agency === 'ARMY' || agency === 'Army' || agency === 'USACE') return 'ARMY'
+  if (agency === 'NAVY' || agency === 'Navy') return 'NAVY'
+  
+  // Check if it's a generic "Federal" agency
+  if (agency === 'Federal' || agency === 'Federal Land') return 'FEDERAL'
   
   // Default
   return 'FEDERAL'
@@ -57,6 +62,8 @@ export function getAgencyFullName(agency) {
     'USFS': 'U.S. Forest Service',
     'BLM': 'Bureau of Land Management',
     'FWS': 'Fish & Wildlife Service',
+    'ARMY': 'U.S. Army / Corps of Engineers',
+    'NAVY': 'U.S. Navy',
     'FEDERAL': 'Federal Land'
   }
   const normalized = normalizeAgency(agency)

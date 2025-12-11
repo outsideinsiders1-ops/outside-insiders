@@ -21,7 +21,9 @@ export const config = {
     USFS: '#92400e',       // Brown
     BLM: '#ea580c',        // Orange
     FWS: '#9333ea',        // Purple
-    FEDERAL: '#6b7280',    // Gray
+    ARMY: '#dc2626',       // Red (Army/Corps of Engineers)
+    NAVY: '#1e40af',       // Navy Blue
+    FEDERAL: '#6b7280',    // Gray (generic federal)
   },
 
   // API endpoints (we'll use these later)
