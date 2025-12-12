@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 30
 
-export async function GET(request, { params }) {
+export async function GET(request, context) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,OPTIONS',
@@ -17,10 +17,16 @@ export async function GET(request, { params }) {
   }
 
   try {
-    // Handle Next.js 13+ App Router params (may be a Promise)
-    let id = params?.id
-    if (id instanceof Promise) {
-      id = await id
+    // Handle Next.js 13+ App Router params - can be in context.params or request
+    let id = null
+    let params = context?.params || {}
+    
+    // Try to get id from params (Next.js 13+)
+    if (params.id) {
+      id = params.id
+      if (id instanceof Promise) {
+        id = await id
+      }
     }
     
     // Also try extracting from URL as fallback
@@ -34,7 +40,7 @@ export async function GET(request, { params }) {
       }
     }
 
-    console.log('Park detail request - ID:', id, 'Params:', params, 'URL:', request.url)
+    console.log('Park detail request - ID:', id, 'Params:', params, 'URL:', request.url, 'Context:', Object.keys(context || {}))
 
     if (!id || id === '[id]' || id === 'undefined' || id === 'null') {
       return Response.json({
