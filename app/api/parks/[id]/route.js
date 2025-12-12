@@ -17,30 +17,55 @@ export async function GET(request, context) {
   }
 
   try {
-    // Handle Next.js 13+ App Router params - can be in context.params or request
+    // Handle Next.js App Router params - try multiple ways
     let id = null
-    let params = context?.params || {}
+    let params = {}
     
-    // Try to get id from params (Next.js 13+)
-    if (params.id) {
-      id = params.id
-      if (id instanceof Promise) {
-        id = await id
+    // Method 1: Try context.params (Next.js 13+)
+    if (context?.params) {
+      params = context.params
+      if (params.id) {
+        id = params.id
+        if (id instanceof Promise) {
+          id = await id
+        }
       }
     }
     
-    // Also try extracting from URL as fallback
+    // Method 2: Try destructured params (legacy format)
+    if (!id && context && typeof context === 'object' && 'params' in context === false) {
+      // If context itself is params
+      if (context.id) {
+        id = context.id
+        params = context
+      }
+    }
+    
+    // Method 3: Extract from URL (always works as fallback)
     if (!id) {
       try {
         const url = new URL(request.url)
-        const pathParts = url.pathname.split('/')
-        id = pathParts[pathParts.length - 1]
+        const pathParts = url.pathname.split('/').filter(p => p)
+        // Find the ID part (should be after 'parks')
+        const parksIndex = pathParts.indexOf('parks')
+        if (parksIndex >= 0 && pathParts.length > parksIndex + 1) {
+          id = pathParts[parksIndex + 1]
+        } else {
+          // Last resort: use last part of path
+          id = pathParts[pathParts.length - 1]
+        }
       } catch (urlError) {
         console.error('Error parsing URL:', urlError)
       }
     }
 
-    console.log('Park detail request - ID:', id, 'Params:', params, 'URL:', request.url, 'Context:', Object.keys(context || {}))
+    console.log('🔍 Park detail request:', {
+      id,
+      url: request.url,
+      hasContext: !!context,
+      contextKeys: context ? Object.keys(context) : [],
+      paramsKeys: params ? Object.keys(params) : []
+    })
 
     if (!id || id === '[id]' || id === 'undefined' || id === 'null') {
       return Response.json({
