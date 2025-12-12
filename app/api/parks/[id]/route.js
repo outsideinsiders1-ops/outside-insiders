@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 30
 
-export async function GET(request, context) {
+export async function GET(request, { params }) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,OPTIONS',
@@ -17,31 +17,15 @@ export async function GET(request, context) {
   }
 
   try {
-    // Handle Next.js App Router params - try multiple ways
-    let id = null
-    let params = {}
+    // Handle Next.js App Router params
+    let id = params?.id
     
-    // Method 1: Try context.params (Next.js 13+)
-    if (context?.params) {
-      params = context.params
-      if (params.id) {
-        id = params.id
-        if (id instanceof Promise) {
-          id = await id
-        }
-      }
+    // In Next.js 15+, params might be a Promise
+    if (id instanceof Promise) {
+      id = await id
     }
     
-    // Method 2: Try destructured params (legacy format)
-    if (!id && context && typeof context === 'object' && 'params' in context === false) {
-      // If context itself is params
-      if (context.id) {
-        id = context.id
-        params = context
-      }
-    }
-    
-    // Method 3: Extract from URL (always works as fallback)
+    // Fallback: Extract from URL if params not available
     if (!id) {
       try {
         const url = new URL(request.url)
@@ -62,9 +46,8 @@ export async function GET(request, context) {
     console.log('🔍 Park detail request:', {
       id,
       url: request.url,
-      hasContext: !!context,
-      contextKeys: context ? Object.keys(context) : [],
-      paramsKeys: params ? Object.keys(params) : []
+      params: params ? Object.keys(params) : 'none',
+      paramsId: params?.id
     })
 
     if (!id || id === '[id]' || id === 'undefined' || id === 'null') {
