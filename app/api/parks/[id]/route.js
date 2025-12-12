@@ -59,14 +59,27 @@ export async function GET(request, { params }) {
     }
 
     // First, let's check if ANY park exists with this ID in any field
-    console.log(`Checking for park with ID: ${id}`)
-    const { data: idCheck } = await supabaseServer
+    console.log(`🔍 Checking for park with ID: ${id}`)
+    const { data: idCheck, error: idCheckError } = await supabaseServer
       .from('parks')
       .select('id, name, source_id')
       .or(`id.eq.${id},source_id.eq.${id}`)
       .limit(5)
     
-    console.log(`Found ${idCheck?.length || 0} parks matching ID ${id}:`, idCheck)
+    console.log(`📊 Found ${idCheck?.length || 0} parks matching ID ${id}`, {
+      parks: idCheck,
+      error: idCheckError?.message
+    })
+    
+    // If no parks found, try a broader search to see what IDs exist
+    if (!idCheck || idCheck.length === 0) {
+      console.log(`⚠️ No parks found with ID ${id}, checking recent parks...`)
+      const { data: recentParks } = await supabaseServer
+        .from('parks')
+        .select('id, name, source_id')
+        .limit(5)
+      console.log(`📋 Sample park IDs in database:`, recentParks?.map(p => ({ id: p.id, name: p.name, source_id: p.source_id })))
+    }
 
     // Fetch full park details including all fields and geometry
     // Try multiple ID fields since parks might use different identifiers
